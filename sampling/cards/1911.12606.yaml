@@ -1,0 +1,425 @@
+bkgfiles :
+    - EWKinos_bkgonly.json
+    - Selectrons_bkgonly.json
+    - Sleptons_bkgonly.json
+    - Smuons_bkgonly.json
+patchsets : 
+    - [EWKinos_patchset.json, False]
+    - [Selectrons_patchset.json, False]
+    - [Sleptons_patchset.json, True]
+    - [Smuons_patchset.json, False]
+channels :
+    - CRVV_MLL_hghmet_cuts : 'CR'
+      CRVV_MLL_lowmet_cuts : 'CR'
+      CRtau_MLL_hghmet_cuts : 'CR'
+      CRtau_MLL_lowmet_cuts : 'CR'
+      CRtop_MLL_hghmet_cuts : 'CR'
+      CRtop_MLL_lowmet_cuts : 'CR'
+      SR_eMLLa_Onelep1track_cuts : 'SR'
+      SR_eMLLb_Onelep1track_cuts : 'SR'
+      SR_eMLLc_Onelep1track_cuts : 'SR'
+      SR_eMLLd_Onelep1track_cuts : 'SR'
+      SR_eMLLe_Onelep1track_cuts : 'SR'
+      SR_eMLLf_Onelep1track_cuts : 'SR'
+      SRee_eMLLc_hghmet_cuts : 'SR'
+      SRee_eMLLc_lowmet_deltaM_high_cuts : 'SR'
+      SRee_eMLLc_lowmet_deltaM_low_cuts : 'SR'
+      SRee_eMLLd_hghmet_cuts : 'SR'
+      SRee_eMLLd_lowmet_deltaM_high_cuts : 'SR'
+      SRee_eMLLd_lowmet_deltaM_low_cuts : 'SR'
+      SRee_eMLLe_hghmet_cuts : 'SR'
+      SRee_eMLLe_lowmet_deltaM_high_cuts : 'SR'
+      SRee_eMLLe_lowmet_deltaM_low_cuts : 'SR'
+      SRee_eMLLf_hghmet_cuts : 'SR'
+      SRee_eMLLf_lowmet_deltaM_high_cuts : 'SR'
+      SRee_eMLLf_lowmet_deltaM_low_cuts : 'SR'
+      SRee_eMLLg_hghmet_cuts : 'SR'
+      SRee_eMLLg_lowmet_deltaM_high_cuts : 'SR'
+      SRee_eMLLh_hghmet_cuts : 'SR'
+      SRee_eMLLh_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLa_hghmet_cuts : 'SR'
+      SRmm_eMLLa_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLa_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLb_hghmet_cuts : 'SR'
+      SRmm_eMLLb_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLb_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLc_hghmet_cuts : 'SR'
+      SRmm_eMLLc_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLc_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLd_hghmet_cuts : 'SR'
+      SRmm_eMLLd_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLd_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLe_hghmet_cuts : 'SR'
+      SRmm_eMLLe_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLe_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLf_hghmet_cuts : 'SR'
+      SRmm_eMLLf_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLf_lowmet_deltaM_low_cuts : 'SR'
+      SRmm_eMLLg_hghmet_cuts : 'SR'
+      SRmm_eMLLg_lowmet_deltaM_high_cuts : 'SR'
+      SRmm_eMLLh_hghmet_cuts : 'SR'
+      SRmm_eMLLh_lowmet_deltaM_high_cuts : 'SR'
+
+    - CRVV_MT2_hghmet_cuts : 'CR'
+      CRVV_MT2_lowmet_cuts : 'CR'
+      CRtau_MT2_hghmet_cuts : 'CR'
+      CRtau_MT2_lowmet_cuts : 'CR'
+      CRtop_MT2_hghmet_cuts : 'CR'
+      CRtop_MT2_lowmet_cuts : 'CR'
+      SRee_eMT2a_hghmet_cuts : 'SR'
+      SRee_eMT2a_lowmet_V2_cuts : 'SR'
+      SRee_eMT2b_hghmet_cuts : 'SR'
+      SRee_eMT2b_lowmet_V2_cuts : 'SR'
+      SRee_eMT2c_hghmet_cuts : 'SR'
+      SRee_eMT2c_lowmet_V2_cuts : 'SR'
+      SRee_eMT2d_hghmet_cuts : 'SR'
+      SRee_eMT2d_lowmet_V2_cuts : 'SR'
+      SRee_eMT2e_hghmet_cuts : 'SR'
+      SRee_eMT2e_lowmet_V2_cuts : 'SR'
+      SRee_eMT2f_hghmet_cuts : 'SR'
+      SRee_eMT2f_lowmet_V2_cuts : 'SR'
+      SRee_eMT2g_hghmet_cuts : 'SR'
+      SRee_eMT2g_lowmet_V2_cuts : 'SR'
+      SRee_eMT2h_hghmet_cuts : 'SR'
+      SRee_eMT2h_lowmet_V2_cuts : 'SR'
+
+    - CRVV_MT2_hghmet_cuts : 'CR'
+      CRVV_MT2_lowmet_cuts : 'CR'
+      CRtau_MT2_hghmet_cuts : 'CR'
+      CRtau_MT2_lowmet_cuts : 'CR'
+      CRtop_MT2_hghmet_cuts : 'CR'
+      CRtop_MT2_lowmet_cuts : 'CR'
+      SRee_eMT2a_hghmet_cuts : 'SR'
+      SRee_eMT2a_lowmet_V2_cuts : 'SR'
+      SRee_eMT2b_hghmet_cuts : 'SR'
+      SRee_eMT2b_lowmet_V2_cuts : 'SR'
+      SRee_eMT2c_hghmet_cuts : 'SR'
+      SRee_eMT2c_lowmet_V2_cuts : 'SR'
+      SRee_eMT2d_hghmet_cuts : 'SR'
+      SRee_eMT2d_lowmet_V2_cuts : 'SR'
+      SRee_eMT2e_hghmet_cuts : 'SR'
+      SRee_eMT2e_lowmet_V2_cuts : 'SR'
+      SRee_eMT2f_hghmet_cuts : 'SR'
+      SRee_eMT2f_lowmet_V2_cuts : 'SR'
+      SRee_eMT2g_hghmet_cuts : 'SR'
+      SRee_eMT2g_lowmet_V2_cuts : 'SR'
+      SRee_eMT2h_hghmet_cuts : 'SR'
+      SRee_eMT2h_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2a_hghmet_cuts : 'SR'
+      SRmm_eMT2a_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2b_hghmet_cuts : 'SR'
+      SRmm_eMT2b_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2c_hghmet_cuts : 'SR'
+      SRmm_eMT2c_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2d_hghmet_cuts : 'SR'
+      SRmm_eMT2d_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2e_hghmet_cuts : 'SR'
+      SRmm_eMT2e_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2f_hghmet_cuts : 'SR'
+      SRmm_eMT2f_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2g_hghmet_cuts : 'SR'
+      SRmm_eMT2g_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2h_hghmet_cuts : 'SR'
+      SRmm_eMT2h_lowmet_V2_cuts : 'SR'
+
+    - CRVV_MT2_hghmet_cuts : 'CR'
+      CRVV_MT2_lowmet_cuts : 'CR'
+      CRtau_MT2_hghmet_cuts : 'CR'
+      CRtau_MT2_lowmet_cuts : 'CR'
+      CRtop_MT2_hghmet_cuts : 'CR'
+      CRtop_MT2_lowmet_cuts : 'CR'
+      SRmm_eMT2a_hghmet_cuts : 'SR'
+      SRmm_eMT2a_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2b_hghmet_cuts : 'SR'
+      SRmm_eMT2b_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2c_hghmet_cuts : 'SR'
+      SRmm_eMT2c_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2d_hghmet_cuts : 'SR'
+      SRmm_eMT2d_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2e_hghmet_cuts : 'SR'
+      SRmm_eMT2e_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2f_hghmet_cuts : 'SR'
+      SRmm_eMT2f_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2g_hghmet_cuts : 'SR'
+      SRmm_eMT2g_lowmet_V2_cuts : 'SR'
+      SRmm_eMT2h_hghmet_cuts : 'SR'
+      SRmm_eMT2h_lowmet_V2_cuts : 'SR'
+
+bkg_yields :
+
+    - - 705.4326972961426
+      - 813.482795715332
+      - 613.5696868896484
+      - 2227.19236767292
+      - 4074.154443502426
+      - 5767.170987844467
+      - 0.9928571581840515
+      - 2.9785714149475098
+      - 5.9571428298950195
+      - 15.885712623596191
+      - 21.84285545349121
+      - 18.86428451538086
+      - 0.7989343772642314
+      - 4.26100043207407
+      - 0.1715040309354663
+      - 4.951058954000473
+      - 7.887444868683815
+      - 4.492309549823403
+      - 11.553875982761383
+      - 17.6014347076416
+      - 4.176369417458773
+      - 10.722488224506378
+      - 14.139159202575684
+      - 0.8670126087963581
+      - 11.144660204648972
+      - 14.292195856571198
+      - 19.58372837305069
+      - 23.175819009542465
+      - 2.5944961719214916
+      - 21.142881045117974
+      - 14.315316596999764
+      - 2.2629094310104847
+      - 10.370856940746307
+      - 5.916135855019093
+      - 7.198392242193222
+      - 7.2976374216377735
+      - 6.587499311193824
+      - 12.545208811759949
+      - 12.577670753002167
+      - 23.7835199162364
+      - 15.101342916488647
+      - 16.31647300720215
+      - 40.73017057776451
+      - 10.370625913143158
+      - 17.590242624282837
+      - 14.79071501083672
+      - 11.350488970056176
+      - 15.750660249963403
+      - 20.396594256162643
+      - 35.47016525268555
+
+
+    - - 393.64001846313477
+      - 306.25725078582764
+      - 262.5690574645996
+      - 759.0564527511597
+      - 1987.8625400159508
+      - 2889.4120810125023
+      - 4.061394581571221
+      - 4.212039137259126
+      - 3.4521576147526503
+      - 5.3189516216516495
+      - 8.188006713986397
+      - 9.553907573223114
+      - 14.322085037827492
+      - 22.77468355000019
+      - 8.724921852350235
+      - 28.099231839179993
+      - 8.312799006700516
+      - 20.231061467900872
+      - 7.315484035760164
+      - 25.287820169702172
+      - 6.534119114279747
+      - 20.556492218747735
+
+    - - 393.64001846313477
+      - 306.25725078582764
+      - 262.5690574645996
+      - 759.0564527511597
+      - 1987.8625400159508
+      - 2889.4120810125023
+      - 4.061394581571221
+      - 4.212039137259126
+      - 3.4521576147526503
+      - 5.3189516216516495
+      - 8.188006713986397
+      - 9.553907573223114
+      - 14.322085037827492
+      - 22.77468355000019
+      - 8.724921852350235
+      - 28.099231839179993
+      - 8.312799006700516
+      - 20.231061467900872
+      - 7.315484035760164
+      - 25.287820169702172
+      - 6.534119114279747
+      - 20.556492218747735
+      - 11.761733478400856
+      - 7.31170604377985
+      - 7.020759720355272
+      - 4.681432947516441
+      - 7.386598721146584
+      - 12.558428853750229
+      - 16.48819413781166
+      - 27.85722064971924
+      - 13.498231828212738
+      - 38.538812935352325
+      - 12.034919410943985
+      - 37.51419425010681
+      - 13.144576514139771
+      - 36.41258002258837
+      - 7.461649047210813
+      - 26.6980830617249
+
+
+    - - 393.64001846313477
+      - 306.25725078582764
+      - 262.5690574645996
+      - 759.0564527511597
+      - 1987.8625400159508
+      - 2889.4120810125023
+      - 11.761733478400856
+      - 7.31170604377985
+      - 7.020759720355272
+      - 4.681432947516441
+      - 7.386598721146584
+      - 12.558428853750229
+      - 16.48819413781166
+      - 27.85722064971924
+      - 13.498231828212738
+      - 38.538812935352325
+      - 12.034919410943985
+      - 37.51419425010681
+      - 13.144576514139771
+      - 36.41258002258837
+      - 7.461649047210813
+      - 26.6980830617249
+
+bkg_unc :
+    - - 9.386828351169315
+      - 21.934615705814014
+      - 14.074931842679332
+      - 35.44846703777411
+      - 22.134218639495977
+      - 26.430726279636474
+      - 0.9928571428571429
+      - 1.7196790160862425
+      - 2.431993387477584
+      - 3.9714285714285715
+      - 4.656912790110406
+      - 4.327763951086812
+      - 0.3794465435506922
+      - 1.8100402209304096
+      - 0.33750799905200773
+      - 0.8327619765903959
+      - 1.3573248232113677
+      - 0.8723259172841349
+      - 1.7065127084655656
+      - 1.686159547953596
+      - 0.3815793364100072
+      - 0.9607299861793979
+      - 1.8080631371695828
+      - 0.3440899075150331
+      - 0.8846248603352975
+      - 1.1617474523083768
+      - 1.2275962375186653
+      - 1.9345233280219314
+      - 0.4051764141009024
+      - 2.500594575181735
+      - 1.9148638103632916
+      - 0.39927080989053687
+      - 1.9934491878765832
+      - 0.8184797954025061
+      - 1.5552879922600469
+      - 1.9104464327591633
+      - 0.48156185378303507
+      - 1.3798317947864247
+      - 1.7708782994565528
+      - 1.7454753809066985
+      - 1.59649304722175
+      - 1.6719955040391097
+      - 1.5831142144886248
+      - 1.2673848553005809
+      - 1.908551534633294
+      - 0.30359080042334946
+      - 0.9861319805072198
+      - 1.2854155539001084
+      - 1.5878254402093086
+      - 2.260700846297592
+
+
+    - - 6.85597100829047
+      - 6.221624555449329
+      - 7.985740653378944
+      - 19.25478201053579
+      - 15.411447501018582
+      - 18.763005693309005
+      - 0.39360468921707736
+      - 0.6376305668223293
+      - 0.39637710220989913
+      - 0.6461670925938201
+      - 0.49671671404615225
+      - 0.9438037478679321
+      - 1.0969216112126947
+      - 1.5425813747470756
+      - 0.9289428706793986
+      - 2.2088674940925137
+      - 0.8937045402130304
+      - 1.5953481735862018
+      - 0.9327455442487451
+      - 1.6341393292512143
+      - 0.8406858530807988
+      - 1.4505697280292296
+
+    - - 6.85597100829047
+      - 6.221624555449329
+      - 7.985740653378944
+      - 19.25478201053579
+      - 15.411447501018582
+      - 18.763005693309005
+      - 0.39360468921707736
+      - 0.6376305668223293
+      - 0.39637710220989913
+      - 0.6461670925938201
+      - 0.49671671404615225
+      - 0.9438037478679321
+      - 1.0969216112126947
+      - 1.5425813747470756
+      - 0.9289428706793986
+      - 2.2088674940925137
+      - 0.8937045402130304
+      - 1.5953481735862018
+      - 0.9327455442487451
+      - 1.6341393292512143
+      - 0.8406858530807988
+      - 1.4505697280292296
+      - 0.4469266606113304
+      - 0.6805841542883752
+      - 0.5975814888620685
+      - 0.5679716623851266
+      - 0.6260937750121067
+      - 0.9155386508889627
+      - 1.2008220645302325
+      - 1.9756529278418036
+      - 1.0721115462110147
+      - 3.1917762372563967
+      - 1.015332625047595
+      - 2.095869934350705
+      - 1.1951257397593564
+      - 2.0807346434907714
+      - 0.7627436826175722
+      - 1.8372354192524198
+
+    - - 6.85597100829047
+      - 6.221624555449329
+      - 7.985740653378944
+      - 19.25478201053579
+      - 15.411447501018582
+      - 18.763005693309005
+      - 0.4469266606113304
+      - 0.6805841542883752
+      - 0.5975814888620685
+      - 0.5679716623851266
+      - 0.6260937750121067
+      - 0.9155386508889627
+      - 1.2008220645302325
+      - 1.9756529278418036
+      - 1.0721115462110147
+      - 3.1917762372563967
+      - 1.015332625047595
+      - 2.095869934350705
+      - 1.1951257397593564
+      - 2.0807346434907714
+      - 0.7627436826175722
+      - 1.8372354192524198
+

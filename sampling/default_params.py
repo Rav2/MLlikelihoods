@@ -1,0 +1,36 @@
+import multiprocessing as mp
+
+
+default_param_dict = {
+                        'analyses' : 'all',
+                        'scans' : 1, 
+                        'processes' : mp.cpu_count(), 
+                        'points' : 1000, 
+                        'bkg_unc_samples' : 500, 
+                        'low_lim_samples' : 30,
+                        'input_folder' : '../data/',
+                        'output_folder' : '../tables/',
+                        'buffer_size' : 100,
+                        'signal_leakage_CR' : True,
+                        'signal_leakage_CR_spread' : 0.10,
+                        'signal_leakage_VR' : False,
+                        'signal_leakage_VR_spread' : 0.10,
+                        'signal_leakage_CR_sign' : 'both',
+                        'signal_leakage_VR_sign' : 'both',
+                        'SR_sigma' : 0.05,
+                        'CR_sigma' : 0.02,
+                        'VR_sigma' : 0.02,
+                        'start method' : 'default',
+                        'scan_criterion' : 'mu1',
+                        'keep_files' : False,
+                        'bkg_unc' : None,
+                        'bkg_yields' : None,
+                        'fit_bkg' : False,
+                        'spey_verbose_lvl' : 1,
+                        'removeCRsVRs' : False,
+                        'remove_channels' : [],
+			            'cluster' : False,
+                        'CR_center' : 'obs',
+                        'VR_center' : 'obs',
+                        }
+

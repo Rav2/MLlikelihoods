@@ -1,0 +1,19 @@
+bkgfiles : 
+    - BkgOnly.json
+patchsets :
+    - patchset.json
+channels :
+    -  CRlow_cuts : 'CR'
+       CRISR_cuts : 'CR'
+       SRlow_cuts : 'SR'
+       SRISR_cuts : 'SR'
+bkg_yields :
+    - 412.0
+    - 442.0
+    - 46.0
+    - 23.4
+bkg_unc :
+    - 20.0
+    - 21.0
+    - 5.0
+    - 2.1

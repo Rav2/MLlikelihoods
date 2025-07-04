@@ -1,0 +1,393 @@
+bkgfiles :
+    - bkg_offshell.json
+    - bkg_offshell.json
+    - bkg_offshell.json
+    - bkg_onshell.json
+patchsets : 
+    - [offshell_higgsino_patchset.json, False]
+    - [offshell_winobino_minus_patchset.json, False]
+    - [offshell_winobino_plus_patchset.json, True]
+    - [onshell_winobino_plus_patchset.json, False]
+
+channels :
+  - CR_0J_WZ_cuts : CR
+    CR_nJ_WZ_cuts : CR
+    SRhigh_0Jb_cuts : SR
+    SRhigh_0Jc_cuts : SR
+    SRhigh_0Jd_cuts : SR
+    SRhigh_0Je_cuts : SR
+    SRhigh_0Jf1_cuts : SR
+    SRhigh_0Jf2_cuts : SR
+    SRhigh_0Jg1_cuts : SR
+    SRhigh_0Jg2_cuts : SR
+    SRhigh_nJa_cuts : SR
+    SRhigh_nJb_cuts : SR
+    SRhigh_nJc_cuts : SR
+    SRhigh_nJd_cuts : SR
+    SRhigh_nJe_cuts : SR
+    SRhigh_nJf_cuts : SR
+    SRhigh_nJg_cuts : SR
+    SRlow_0Jb_cuts : SR
+    SRlow_0Jc_cuts : SR
+    SRlow_0Jd_cuts : SR
+    SRlow_0Je_cuts : SR
+    SRlow_0Jf1_cuts : SR
+    SRlow_0Jf2_cuts : SR
+    SRlow_0Jg1_cuts : SR
+    SRlow_0Jg2_cuts : SR
+    SRlow_nJb_cuts : SR
+    SRlow_nJc_cuts : SR
+    SRlow_nJd_cuts : SR
+    SRlow_nJe_cuts : SR
+    SRlow_nJf1_cuts : SR
+    SRlow_nJf2_cuts : SR
+    SRlow_nJg1_cuts : SR
+    SRlow_nJg2_cuts : SR
+
+  - CR_0J_WZ_cuts : CR
+    CR_nJ_WZ_cuts : CR
+    SRhigh_0Jb_cuts : SR
+    SRhigh_0Jc_cuts : SR
+    SRhigh_0Jd_cuts : SR
+    SRhigh_0Je_cuts : SR
+    SRhigh_0Jf1_cuts : SR
+    SRhigh_0Jf2_cuts : SR
+    SRhigh_0Jg1_cuts : SR
+    SRhigh_0Jg2_cuts : SR
+    SRhigh_nJa_cuts : SR
+    SRhigh_nJb_cuts : SR
+    SRhigh_nJc_cuts : SR
+    SRhigh_nJd_cuts : SR
+    SRhigh_nJe_cuts : SR
+    SRhigh_nJf_cuts : SR
+    SRhigh_nJg_cuts : SR
+    SRlow_0Jb_cuts : SR
+    SRlow_0Jc_cuts : SR
+    SRlow_0Jd_cuts : SR
+    SRlow_0Je_cuts : SR
+    SRlow_0Jf1_cuts : SR
+    SRlow_0Jf2_cuts : SR
+    SRlow_0Jg1_cuts : SR
+    SRlow_0Jg2_cuts : SR
+    SRlow_nJb_cuts : SR
+    SRlow_nJc_cuts : SR
+    SRlow_nJd_cuts : SR
+    SRlow_nJe_cuts : SR
+    SRlow_nJf1_cuts : SR
+    SRlow_nJf2_cuts : SR
+    SRlow_nJg1_cuts : SR
+    SRlow_nJg2_cuts : SR
+
+  - CR_0J_WZ_cuts : CR
+    CR_nJ_WZ_cuts : CR
+    SRhigh_0Jb_cuts : SR
+    SRhigh_0Jc_cuts : SR
+    SRhigh_0Jd_cuts : SR
+    SRhigh_0Je_cuts : SR
+    SRhigh_0Jf1_cuts : SR
+    SRhigh_0Jf2_cuts : SR
+    SRhigh_0Jg1_cuts : SR
+    SRhigh_0Jg2_cuts : SR
+    SRhigh_nJa_cuts : SR
+    SRhigh_nJb_cuts : SR
+    SRhigh_nJc_cuts : SR
+    SRhigh_nJd_cuts : SR
+    SRhigh_nJe_cuts : SR
+    SRhigh_nJf_cuts : SR
+    SRhigh_nJg_cuts : SR
+    SRlow_0Jb_cuts : SR
+    SRlow_0Jc_cuts : SR
+    SRlow_0Jd_cuts : SR
+    SRlow_0Je_cuts : SR
+    SRlow_0Jf1_cuts : SR
+    SRlow_0Jf2_cuts : SR
+    SRlow_0Jg1_cuts : SR
+    SRlow_0Jg2_cuts : SR
+    SRlow_nJb_cuts : SR
+    SRlow_nJc_cuts : SR
+    SRlow_nJd_cuts : SR
+    SRlow_nJe_cuts : SR
+    SRlow_nJf1_cuts : SR
+    SRlow_nJf2_cuts : SR
+    SRlow_nJg1_cuts : SR
+    SRlow_nJg2_cuts : SR
+    
+
+  - WZ_CR_0jets_cuts : CR
+    WZ_CR_LowHT_cuts : CR
+    WZ_CR_HighHT_cuts : CR
+    SR1_WZ_cuts : SR
+    SR2_WZ_cuts : SR
+    SR3_WZ_cuts : SR
+    SR4_WZ_cuts : SR
+    SR5_WZ_cuts : SR
+    SR6_WZ_cuts : SR
+    SR7_WZ_cuts : SR
+    SR8_WZ_cuts : SR
+    SR9_WZ_cuts : SR
+    SR10_WZ_cuts : SR
+    SR11_WZ_cuts : SR
+    SR12_WZ_cuts : SR
+    SR13_WZ_cuts : SR
+    SR14_WZ_cuts : SR
+    SR15_WZ_cuts : SR
+    SR16_WZ_cuts : SR
+    SR17_WZ_cuts : SR
+    SR18_WZ_cuts : SR
+    SR19_WZ_cuts : SR
+    SR20_WZ_cuts : SR
+
+bkg_yields :
+  -  - 4953.7
+     - 3345.2
+     - 1.5
+     - 4.3
+     - 14.0
+     - 11.5
+     - 35.7
+     - 25.5
+     - 39.5
+     - 21.0
+     - 6.0
+     - 1.4
+     - 2.1
+     - 5.4
+     - 3.0
+     - 9.9
+     - 6.8
+     - 32.0
+     - 44.0
+     - 54.0
+     - 91.0
+     - 32.2
+     - 5.9
+     - 34.7
+     - 6.3
+     - 3.5
+     - 8.0
+     - 13.5
+     - 18.2
+     - 23.4
+     - 17.9
+     - 17.0
+     - 12.4
+     
+  -  - 4953.7
+     - 3345.2
+     - 1.5
+     - 4.3
+     - 14.0
+     - 11.5
+     - 35.7
+     - 25.5
+     - 39.5
+     - 21.0
+     - 6.0
+     - 1.4
+     - 2.1
+     - 5.4
+     - 3.0
+     - 9.9
+     - 6.8
+     - 32.0
+     - 44.0
+     - 54.0
+     - 91.0
+     - 32.2
+     - 5.9
+     - 34.7
+     - 6.3
+     - 3.5
+     - 8.0
+     - 13.5
+     - 18.2
+     - 23.4
+     - 17.9
+     - 17.0
+     - 12.4
+  
+  -  - 4953.7
+     - 3345.2
+     - 1.5
+     - 4.3
+     - 14.0
+     - 11.5
+     - 35.7
+     - 25.5
+     - 39.5
+     - 21.0
+     - 6.0
+     - 1.4
+     - 2.1
+     - 5.4
+     - 3.0
+     - 9.9
+     - 6.8
+     - 32.0
+     - 44.0
+     - 54.0
+     - 91.0
+     - 32.2
+     - 5.9
+     - 34.7
+     - 6.3
+     - 3.5
+     - 8.0
+     - 13.5
+     - 18.2
+     - 23.4
+     - 17.9
+     - 17.0
+     - 12.4
+
+  -  - 2681.7
+     - 3666.0
+     - 802.4
+     - 314.0
+     - 35.0
+     - 4.1
+     - 1.2
+     - 58.0
+     - 8.0
+     - 5.8
+     - 0.8
+     - 90.0
+     - 13.4
+     - 0.5
+     - 0.49
+     - 89.0
+     - 16.0
+     - 2.8
+     - 1.3
+     - 13.7
+     - 9.2
+     - 2.3
+     - 1.09
+
+
+bkg_unc :
+  - - 90.1
+    - 69.0
+    - 0.7
+    - 0.8
+    - 1.6
+    - 1.6
+    - 3.2
+    - 2.4
+    - 3.0
+    - 7.0
+    - 1.6
+    - 0.6
+    - 0.8
+    - 1.4
+    - 1.1
+    - 2.5
+    - 1.8
+    - 4.0
+    - 4.0
+    - 4.0
+    - 6.0
+    - 2.5
+    - 1.1
+    - 2.8
+    - 1.1
+    - 0.6
+    - 1.2
+    - 1.5
+    - 3.4
+    - 2.5
+    - 1.9
+    - 3.5
+    - 1.9
+
+  - - 90.1
+    - 69.0
+    - 0.7
+    - 0.8
+    - 1.6
+    - 1.6
+    - 3.2
+    - 2.4
+    - 3.0
+    - 7.0
+    - 1.6
+    - 0.6
+    - 0.8
+    - 1.4
+    - 1.1
+    - 2.5
+    - 1.8
+    - 4.0
+    - 4.0
+    - 4.0
+    - 6.0
+    - 2.5
+    - 1.1
+    - 2.8
+    - 1.1
+    - 0.6
+    - 1.2
+    - 1.5
+    - 3.4
+    - 2.5
+    - 1.9
+    - 3.5
+    - 1.9
+
+  - - 90.1
+    - 69.0
+    - 0.7
+    - 0.8
+    - 1.6
+    - 1.6
+    - 3.2
+    - 2.4
+    - 3.0
+    - 7.0
+    - 1.6
+    - 0.6
+    - 0.8
+    - 1.4
+    - 1.1
+    - 2.5
+    - 1.8
+    - 4.0
+    - 4.0
+    - 4.0
+    - 6.0
+    - 2.5
+    - 1.1
+    - 2.8
+    - 1.1
+    - 0.6
+    - 1.2
+    - 1.5
+    - 3.4
+    - 2.5
+    - 1.9
+    - 3.5
+    - 1.9
+
+  - - 28.8
+    - 75.1
+    - 18.3
+    - 33.0
+    - 6.0
+    - 1.0
+    - 0.5
+    - 5.0
+    - 0.9
+    - 1.0
+    - 0.4
+    - 20.0 
+    - 2.4
+    - 0.4
+    - 0.24
+    - 11.0
+    - 1.4
+    - 0.6
+    - 0.27
+    - 2.6
+    - 1.3
+    - 0.4
+    - 0.3

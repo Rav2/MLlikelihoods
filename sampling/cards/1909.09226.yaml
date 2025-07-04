@@ -1,0 +1,29 @@
+bkgfiles : 
+    - BkgOnly.json
+patchsets :
+    - patchset.json
+channels :
+    -  SRHMEM_mct2 : 'SR'
+       SRLMEM_mct2 : 'SR'
+       SRMMEM_mct2 : 'SR'
+       STCREM_cuts : 'CR'
+       TRHMEM_cuts : 'CR'
+       TRLMEM_cuts : 'CR'
+       TRMMEM_cuts : 'CR'
+       WREM_cuts : 'CR'
+bkg_yields :
+    - 8.1
+    - 27.0
+    - 8.6
+    - 155
+    - 637
+    - 477
+    - 145
+bkg_unc :
+    - 2.7
+    - 4.0
+    - 2.2
+    - 12.4
+    - 25.2
+    - 21.8
+    - 12.0

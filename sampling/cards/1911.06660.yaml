@@ -1,0 +1,22 @@
+bkgfiles : 
+    - Region-combined/BkgOnly.json
+patchsets :
+    - Region-combined/patchset.json
+channels :
+    -   QCR1cut_cuts : 'CR'
+        QCR2cut_cuts : 'CR'
+        SR1cut_cuts : 'SR'
+        SR2cut_cuts : 'SR'
+        WCRcut_cuts : 'CR'
+bkg_yields :
+    - 72
+    - 27
+    - 6.0
+    - 10.2
+    - 1099
+bkg_unc :
+    - 8
+    - 5
+    - 33
+    - 1.7
+    - 3.3
