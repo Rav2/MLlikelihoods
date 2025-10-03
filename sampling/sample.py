@@ -410,7 +410,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
 
                 logger.info(f"Generating initial points.")
 
-                p0s = generate_starting_points(nSmin, nSmax, 
+                p0s = generate_starting_points(nSmin, nSmax, central_values,
                                     mask=mask,
                                     n=param_dict['scans'], 
                                     start_method=param_dict['start_method'], 
@@ -418,6 +418,13 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                     starting_points_file=starting_points_file,
                                     starting_points_file_index=starting_points_file_index 
                                     )
+                # When using input file with total yields, one has to subtract central values
+                # if starting_points_file is not None:
+                #     if len(p0s[0]) != len(central_values):
+                #         raise IndexError(f'Size mismatch! Starting points: {len(p0s[0])}, expected: {len(central_values)}!')
+                #     if len(p0s) > 1:
+                #         raise NotImplementedError(f'Expected a single starting point from file, but encountered {len(p0s)}.')
+                #     p0s[0] = p0s[0] - central_values
 
                 ##############################
                 # Prepare channels for removal
@@ -447,7 +454,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 ####################
                 ######  SCAN  ######
                 ####################
-
+                
                 logger.info('Saving metadata.')
                 metadata = create_metadata(param_dict,
                                             bkg_yields, 

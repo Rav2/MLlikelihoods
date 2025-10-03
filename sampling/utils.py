@@ -206,7 +206,7 @@ def find_mu_limits(nSmin, nSmax, central_values, logger):
     return mu_min, mu_max
 
 
-def generate_starting_points(nsMin, nsMax, mask, n=1, start_method='default', channels_and_bins=None, logger=None, starting_points_file=None, starting_points_file_index=None 
+def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_method='default', channels_and_bins=None, logger=None, starting_points_file=None, starting_points_file_index=None 
 ):
     #
     # some useful functions
@@ -240,6 +240,8 @@ def generate_starting_points(nsMin, nsMax, mask, n=1, start_method='default', ch
     
     if starting_points_file is not None:
         try:
+            logger.warning('Using external file for starting points. Make sure it contains TOTAL yields.')
+            logger.info(f'Attempting to read starting points from {starting_points_file}')
             table = pd.read_csv(starting_points_file)
 
             # 1 if pandas only saw one column and it contains ";" in its name, re-read assuming ";" is the separator
@@ -260,13 +262,20 @@ def generate_starting_points(nsMin, nsMax, mask, n=1, start_method='default', ch
             # check for missing
             missing = set(expected_cols) - set(table.columns)
             if missing:
-                raise KeyError(f"Missing columns in starting‐points file: {sorted(missing)}")
+                logger.error(f"Missing columns in starting‐points file: {sorted(missing)}. I will use some default values for these.")
+                for ii, colname in enumerate(expected_cols):
+                    if colname in missing:
+                        table.insert(ii, colname, central_values[ii], allow_duplicates=False)
+                new_missing = set(expected_cols) - set(table.columns)
+                if new_missing:
+                    raise ValueError(f'Failure to add default values for columns: {new_missing}')
 
             # drop extras and reorder
             table = table[expected_cols]
 
             # extract raw numpy (no index, no names)
-            points = table.to_numpy()
+            points = table.to_numpy(dtype=float) - central_values
+            logger.info('Starting points read!')
             return points
 
         except FileNotFoundError:
