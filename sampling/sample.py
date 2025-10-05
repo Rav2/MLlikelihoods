@@ -301,18 +301,51 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                         bins_is_signal.append(k in SRs)
                 bins_is_signal = np.array(bins_is_signal)
                 bkg_yields = list(zip(bins_names, data_bkg[:len(bins_is_signal)]))
+
+                # Store channel_nbins before deleting model_bkg - needed for robust mapping
+                channel_nbins = dict(model_bkg.config.channel_nbins)
+
                 del data_bkg
                 del model_bkg
+
                 if not param_dict['fit_bkg']:
                     logger.info(f"Loading background yields and uncertainties from the file.")
                     file_data_bkg = param_dict['bkg_yields'][file_pair_index]
-                    bkg_yields = list(zip(bins_names, file_data_bkg))
                     file_data_bkg_unc = param_dict['bkg_unc'][file_pair_index]
-                    bkg_unc = list(zip(bins_names, file_data_bkg_unc))
-                    if len(bins_names) != len(file_data_bkg) or  len(bins_names) != len(file_data_bkg_unc):
-                        mes = f'There is a mismatch between the number of recognised bins ({len(bins_names)}), \
-                        the number of bkg yields ({len(file_data_bkg)}), and the number of bkg uncertainties ({len(file_data_bkg_unc)}). Please proceed carefully.'
-                        logger.warning(mes)
+                    
+                    # Create bin names in YAML file's channel ordering
+                    input_bins_ordered = []
+                    for ch_name in channels.keys():
+                        n_bins = channel_nbins.get(ch_name)
+                        if n_bins is None:
+                            logger.warning(f"Channel {ch_name} from input file not found in model")
+                            continue
+                        for ii in range(n_bins):
+                            input_bins_ordered.append(f'{ch_name}-{ii}')
+                    
+                    # Validate lengths
+                    if len(input_bins_ordered) != len(file_data_bkg) or len(input_bins_ordered) != len(file_data_bkg_unc):
+                        mes = f'There is a mismatch between the number of recognised bins ({len(input_bins_ordered)}), ' \
+                              f'the number of bkg yields ({len(file_data_bkg)}), and the number of bkg uncertainties ({len(file_data_bkg_unc)}). Please proceed carefully.'
+                        logger.error(mes)
+                        raise ValueError(mes)
+                    
+                    # Create lookup dictionaries mapping bin name -> value
+                    bkg_yield_dict = dict(zip(input_bins_ordered, file_data_bkg))
+                    bkg_unc_dict = dict(zip(input_bins_ordered, file_data_bkg_unc))
+                    
+                    # Assign values in MODEL's bin ordering (bins_names)
+                    bkg_yields = []
+                    bkg_unc = []
+                    for bin_name in bins_names:
+                        if bin_name not in bkg_yield_dict:
+                            mes = f'Bin {bin_name} from model not found in input file data'
+                            logger.error(mes)
+                            raise ValueError(mes)
+                        bkg_yields.append((bin_name, bkg_yield_dict[bin_name]))
+                        bkg_unc.append((bin_name, bkg_unc_dict[bin_name]))
+                    
+                    logger.info(f"Successfully mapped {len(bkg_yields)} background yields and uncertainties")
                 else:
                     ########################################
                     # determine background uncertainties
