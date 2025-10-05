@@ -318,6 +318,10 @@ class LikelihoodCalculatorWrapper():
             return -1*nLL_obs_mu1
         elif self._criterion == 'nLL_exp_mu1':
             return -1*nLL_exp_mu1
+        elif self._criterion == 'LL_obs_mu1':
+            return nLL_obs_mu1
+        elif self._criterion == 'LL_exp_mu1':
+            return nLL_exp_mu1
         else:
             mes = '[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper.'
             self.logger.critical(mes)
@@ -394,7 +398,7 @@ class ScanWrapper():
     def __call__(self, dat):
         set_seeds(self._seed)
         p0, output_file = dat
-        if self._criterion in ['nLL_obs_mu1', 'nLL_exp_mu1']:
+        if self._criterion in ['nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1']:
             criterion = self._criterion
         elif self._criterion == 'mu1':
             criterion = np.random.choice(['nLL_exp_mu1', 'nLL_obs_mu1'], 1)
