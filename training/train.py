@@ -222,9 +222,9 @@ def main(infile,  model_name='model'):
                     else:
                         parameters[k] = int(v)
     else: 
-        parameters = {'neurons' :2048, 
-                     'blocks' : 3, 
-                     'l2' : 1e-3,
+        parameters = {'neurons' :512, 
+                     'blocks' : 4, 
+                     'l2' : 1e-5,
                      'activation' : 'elu',
                      'batch_norm' : True,  
                     }
@@ -238,9 +238,9 @@ def main(infile,  model_name='model'):
     #
     logging.info(f'NN parameters: {parameters}')
     # Learning Scheduler
-    decay_steps = 40*10000*2
+    decay_steps = 4000*233
     initial_learning_rate = 0.
-    warmup_steps = 40*100
+    warmup_steps = 40*233
     target_learning_rate = 0.001
     lr_warmup_decayed_fn = keras.optimizers.schedules.CosineDecay(
         initial_learning_rate, decay_steps, warmup_target=target_learning_rate,
@@ -253,7 +253,7 @@ def main(infile,  model_name='model'):
                             blocks = parameters['blocks'], 
                             l2 = parameters['l2'],
                             activation = parameters['activation'],
-                            loss='MSE',
+                            loss='huber',
                             output_size = 4,
                         )
 
@@ -261,7 +261,7 @@ def main(infile,  model_name='model'):
     if platform.system() == "Darwin" and platform.processor() == "arm":
         opt = tf.keras.optimizers.legacy.Adam(learning_rate=lr_warmup_decayed_fn)
     else:
-        opt = tf.keras.optimizers.Adam(learning_rate=lr_warmup_decayed_fn)
+        opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
 
     # loss functions and metric
     themodel.compile(optimizer=opt, weighted_metrics=[])
@@ -276,8 +276,8 @@ def main(infile,  model_name='model'):
         x=train_scaled.iloc[:, :-4],
         y=train_scaled.iloc[:, -4:],
         # sample_weight=train_weights,
-        batch_size=3000,
-        epochs=10000,
+        batch_size=1024,
+        epochs=5000,
         validation_data=(
             val_scaled.iloc[:, :-4], 
             val_scaled.iloc[:, -4:], 
@@ -359,24 +359,6 @@ def main(infile,  model_name='model'):
     except Exception as e:
         logging.error('Could not save custom metadata because of the following error: '+str(e))
 
-    onnx.save(onnx_model, join(outpath_model, model_name+".onnx"))
-
-
-    for var in history.history.keys():
-        if 'val' in var:
-            continue
-        plt.clf()
-        plt.plot(history.history[var], label=var)
-        plt.plot(history.history['val_' + var], label='val_'+var, alpha=0.9)
-        plt.yscale('log')
-        plt.xlabel('epoch')
-        plt.ylabel('value')
-        plt.legend()
-        plt.savefig(join(outpath_aux, f'{var}.pdf'))
-        fig_data = np.array([history.history[var], history.history['val_' + var]]).T
-        np.savetxt(join(outpath_aux, f'{var}.txt'), fig_data, header=f'{var}\t{"val_" + var}')
-    
-
     logging.info('Dummy prediction:')
     dummy_input = np.array( np.random.normal(loc=0, scale=1, size=(5, -4+len(columns))) )
     logging.info(themodel.predict(dummy_input))
@@ -396,6 +378,27 @@ def main(infile,  model_name='model'):
         logging.info('NLL prediction (mu=1) on bkg yields (S=0):')
         logging.info(themodel.predict(np.array([yields]))[0]*std_arr[-4:]+mean_arr[-4:]+shift)
         logging.info(f'NLL (mu=0) values: {shift}')
+
+    onnx_path = join(outpath_model, model_name+".onnx")
+    logging.info(f"saving the model to {onnx_path}")
+    onnx.save(onnx_model, onnx_path)
+
+
+    for var in history.history.keys():
+        if 'val' in var:
+            continue
+        plt.clf()
+        plt.plot(history.history[var], label=var)
+        plt.plot(history.history['val_' + var], label='val_'+var, alpha=0.9)
+        plt.yscale('log')
+        plt.xlabel('epoch')
+        plt.ylabel('value')
+        plt.legend()
+        plt.savefig(join(outpath_aux, f'{var}.pdf'))
+        fig_data = np.array([history.history[var], history.history['val_' + var]]).T
+        np.savetxt(join(outpath_aux, f'{var}.txt'), fig_data, header=f'{var}\t{"val_" + var}')
+    
+
 
     # print('Loaded model')
     # onnx_model_loaded = onnx.load(join(outpath_model, model_name+".onnx"))

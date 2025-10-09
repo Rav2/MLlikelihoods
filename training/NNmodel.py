@@ -87,6 +87,10 @@ class MyModelNN(keras.Model):
             self.loss_metric = mean_absolute_error_loss
         elif loss == 'MAPE':
             self.loss_metric = mean_absolute_percentage_error
+        elif loss == 'hybrid':
+            self.loss_metric = hybrid_loss
+        elif loss == 'huber':
+            self.loss_metric = keras.losses.Huber(delta=1.0)
         else:
             raise ValueError('[ERROR] Unknown loss!')
         self.loss_tracker = keras.metrics.Mean(name="loss")

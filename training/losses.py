@@ -33,5 +33,9 @@ def mean_absolute_error_loss(y_true, y_pred):
 def mean_absolute_percentage_error(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
-    return 100*backend.mean( tf.math.abs( tf.math.reciprocal_no_nan(y_true) * tf.subtract(y_true, y_pred) ) )
+    return 100*tf.reduce_mean( tf.math.abs( tf.math.reciprocal_no_nan(y_true) * tf.subtract(y_true, y_pred) ) )
 
+def hybrid_loss(y_true, y_pred, alpha=0.5):
+    abs_loss = tf.abs(y_true-y_pred)
+    rel_loss = tf.abs(y_true-y_pred)/(tf.abs(y_true)+1e-3)
+    return tf.reduce_mean(alpha*abs_loss+(1-alpha)*rel_loss)
