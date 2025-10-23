@@ -20,9 +20,20 @@ def merge_csv_files(input_patterns, output_file):
     dataframes = [pd.read_csv(file) for file in all_files]
     merged_df = pd.concat(dataframes, ignore_index=True)
     
+    # Check for and remove duplicates
+    initial_rows = len(merged_df)
+    merged_df = merged_df.drop_duplicates()
+    final_rows = len(merged_df)
+    duplicates_removed = initial_rows - final_rows
+    
+    if duplicates_removed > 0:
+        print(f"Removed {duplicates_removed} duplicate row(s)")
+    else:
+        print("No duplicates found")
+    
     # Save merged DataFrame to disk
     merged_df.to_csv(output_file, index=False)
-    print(f"Merged CSV saved to {output_file}")
+    print(f"Merged CSV saved to {output_file} ({final_rows} rows)")
     
     return all_files
 
