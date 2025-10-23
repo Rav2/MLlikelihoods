@@ -39,3 +39,8 @@ def hybrid_loss(y_true, y_pred, alpha=0.5):
     abs_loss = tf.abs(y_true-y_pred)
     rel_loss = tf.abs(y_true-y_pred)/(tf.abs(y_true)+1e-3)
     return tf.reduce_mean(alpha*abs_loss+(1-alpha)*rel_loss)
+
+def log_cosh_loss(y_true, y_pred):
+    """Log-cosh loss - smooth approximation of MAE, less sensitive to outliers"""
+    diff = y_pred - y_true
+    return tf.reduce_mean(tf.math.log(tf.cosh(diff)))
