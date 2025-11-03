@@ -147,6 +147,8 @@ class MyModelNN(keras.Model):
             self.loss_metric = keras.losses.Huber(delta=1.0)
         elif loss == 'log_cosh':
             self.loss_metric = log_cosh_loss
+        elif loss == 'triple':
+            self.loss_metric = triple_loss
         else:
             raise ValueError('[ERROR] Unknown loss!')
         self.loss_tracker = keras.metrics.Mean(name="loss")

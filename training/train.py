@@ -335,7 +335,7 @@ def create_cosine_scheduler(initial_lr, peak_lr, final_lr, warmup_epochs, total_
     )
 
 
-def build_and_compile_model(parameters, columns, batch_size, train_size, loss_name = 'MSE'):
+def build_and_compile_model(parameters, columns, batch_size, train_size):
     """Build and compile the neural network model."""
     try:
         # Calculate steps per epoch
@@ -358,7 +358,7 @@ def build_and_compile_model(parameters, columns, batch_size, train_size, loss_na
             blocks=parameters['blocks'],
             l2=parameters['l2'],
             activation=parameters['activation'],
-            loss=loss_name,
+            loss=parameters['loss'],
             output_size=4,
             dropout_rate = parameters['dropout_rate'],
             use_residual = parameters['use_residual'],
@@ -375,7 +375,7 @@ def build_and_compile_model(parameters, columns, batch_size, train_size, loss_na
         
         logging.info(f"✓ Model compiled successfully")
         logging.info(f"  Optimizer: {optimizer.__class__.__name__}")
-        logging.info(f"  Loss: {loss_name}")
+        logging.info(f"  Loss: {parameters['loss']}")
         logging.info(f"  Steps per epoch: {steps_per_epoch}")
         
         return model, optimizer
@@ -440,7 +440,7 @@ def add_metadata_to_onnx(onnx_model, metadata_dict):
 
 def save_onnx_model(model, outpath_model, model_name, mean_arr, std_arr, shift, 
                     outfolder, parameters, time_string, infile, outpath_aux,
-                    optimizer_name, loss_name, batch_size, early_stopping_used):
+                    optimizer_name, batch_size, early_stopping_used):
     """Convert model to ONNX and save with metadata."""
     try:
         logging.info("\nConverting model to ONNX format...")
@@ -464,7 +464,6 @@ def save_onnx_model(model, outpath_model, model_name, mean_arr, std_arr, shift,
             'training_duration': time_string,
             'training_date': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             'optimizer': optimizer_name,
-            'loss_function': loss_name,
             'batch_size': batch_size,
             'early_stopping_used': early_stopping_used,
         }
@@ -639,12 +638,30 @@ def main(args):
                                                optimize=args.optimize)
         logging.info(f'NN parameters: {parameters}')
         
+        # Hard reset after optimization
+        if args.optimize:
+            logging.info("Performing memory reset after optimization...")
+            tf.keras.backend.clear_session()
+            gc.collect()
+            
+            physical_devices = tf.config.list_physical_devices('GPU')
+            if physical_devices:
+                try:
+                    for gpu in physical_devices:
+                        tf.config.experimental.reset_memory_stats(gpu)
+                except:
+                    pass
+            
+            # Give system time to stabilize
+            import time as time_module
+            time_module.sleep(3)
+            
+            logging.info("Memory reset completed")
+        
         gc.collect()
         
-        loss_name = 'hybrid'
-
         # Build and compile model
-        model, optimizer = build_and_compile_model(parameters, columns, args.batch_size, len(train_scaled), loss_name)
+        model, optimizer = build_and_compile_model(parameters, columns, args.batch_size, len(train_scaled))
         
         # Train model
         history = train_model(model, train_scaled, val_scaled, args.batch_size, args.epochs,
@@ -661,7 +678,7 @@ def main(args):
         bkg_yields, onnx_path = save_onnx_model(
             model, outpath_model, args.model_name, mean_arr, std_arr, shift,
             outfolder, parameters, time_string, args.input, outpath_aux,
-            optimizer_name, loss_name, args.batch_size, args.early_stopping
+            optimizer_name, args.batch_size, args.early_stopping
         )
         
         # Make predictions
@@ -764,14 +781,15 @@ def parse_arguments():
 # ==========================
 
 default_parameters ={
-                'neurons': 2048,
-                'blocks': 5,
-                'l2': 1e-6,
+                'neurons': 1024*10,
+                'blocks': 3,
+                'l2': 1e-4,
                 'activation': 'elu',
                 'batch_norm': True,
                 'dropout_rate': 0.0,
                 'use_residual' : False,
                 'width' : 'equal',
+                'loss' : 'hybrid'
             }
 
 if __name__ == '__main__':

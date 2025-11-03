@@ -15,6 +15,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
             'l2' : trial.suggest_float('l2', 1e-7, 1e-1, log=True),   
             'activation' : trial.suggest_categorical('activation', ['relu', 'elu', 'tanh', 'relu6', 'swish']),
             'width' : trial.suggest_categorical('width', ['equal', ]),
+            'loss' : trial.suggest_categorical('width', ['MSE']), # dummy 
             'batch_norm' : trial.suggest_categorical('batch_norm', [True, False]),
             'use_residual' : trial.suggest_categorical('use_residual', [True, False]),
             'dropout_rate' : trial.suggest_float('dropout_rate', 0.0, 0.15)
@@ -43,7 +44,13 @@ def objective(trial, X_train, y_train, X_val, y_val):
             validation_data=(X_val_subset, y_val_subset),
             verbose=0,
         )       
+        # cleanup
+        del model 
+        del history
+        tf.keras,backend.clear_session()
+        gc.collect()
         return history.history['val_mape'][-1]
+
     except (tf.errors.ResourceExhaustedError, tf.errors.InternalError) as e:
         print(f"[WARNING] Trial {trial.number} failed with GPU error: {type(e).__name__}")
         print(f"         Params: neurons={param['neurons']}, blocks={param['blocks']}, width={param['width']}")
@@ -120,6 +127,24 @@ def optimize_params(train_scaled, val_scaled, best_trail_path, n_trials=2, n_job
             fout.write('"{}":{},\n'.format(key, value))
         fout.write("}")
     parameters = {k:v for k,v in best_trial.params.items()}
+    
+    # cleanup
+    del study
+    gc.collect()
+    tf.keras.backend.clear_session()
+    
+    # Optional: Force GPU memory reset
+    if physical_devices:
+        try:
+            for gpu in physical_devices:
+                tf.config.experimental.reset_memory_stats(gpu)
+        except:
+            pass
+    
+    # Add delay to allow system stabilization
+    import time
+    time.sleep(2)
+
     # we turn eager execution on again to get correct nLL for mu=0 when training the final model
     tf.config.run_functions_eagerly(True)
     return parameters

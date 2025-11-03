@@ -18,7 +18,6 @@ def mixed_loss(y_true, y_pred):
     y_true = tf.cast(y_true, y_pred.dtype)
     return 1e-2*backend.mean(tf.math.square(tf.math.squared_difference(y_pred, y_true)), axis=-1) + backend.mean(tf.math.squared_difference(y_pred, y_true), axis=-1)
 
-
 def mean_squared_error_loss(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
@@ -28,7 +27,6 @@ def mean_absolute_error_loss(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
     return tf.keras.metrics.mean_absolute_error(y_true, y_pred)
-
 
 def mean_absolute_percentage_error(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
@@ -44,3 +42,11 @@ def log_cosh_loss(y_true, y_pred):
     """Log-cosh loss - smooth approximation of MAE, less sensitive to outliers"""
     diff = y_pred - y_true
     return tf.reduce_mean(tf.math.log(tf.cosh(diff)))
+
+def triple_loss(y_true, y_pred):
+    y_pred = tf.convert_to_tensor(y_pred)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    absolute  = tf.abs(y_true-y_pred) 
+    rooted = tf.math.sqrt(absolute+1e-7) # eps for stability
+    squared = tf.math.squared_difference(y_pred, y_true)
+    return tf.reduce_mean(rooted + 0.1*absolute + 0.01*squared)
