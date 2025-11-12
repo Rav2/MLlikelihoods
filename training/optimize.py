@@ -99,7 +99,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
         # For unexpected errors, we might want to see them
         raise
 
-def optimize_params(hyper_params, train_scaled, val_scaled, best_trail_path, n_trials=2, n_jobs=1):
+def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=2, n_jobs=1):
     # we dont need nLL for mu=0 so we disable eager execution for better performance 
     physical_devices = tf.config.list_physical_devices('GPU')
     if physical_devices:
@@ -124,11 +124,11 @@ def optimize_params(hyper_params, train_scaled, val_scaled, best_trail_path, n_t
     
     parameters = {k:v for k,v in best_trial.params.items()}
     param_keys = parameters.keys()
-    for k,v in hyper_params:
-        if k is not in param_keys:
+    for k,v in hyper_params.items():
+        if k not in param_keys:
             parameters[k] = v 
 
-    with open(best_trail_path, 'w') as fout:
+    with open(best_trial_path, 'w') as fout:
             yaml.dump(parameters, fout)
     
     # cleanup

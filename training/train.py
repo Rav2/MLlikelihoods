@@ -20,26 +20,38 @@ from os.path import dirname, basename, join
 from tensorflow import keras
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
-
+import yaml
 from NNmodel import MyModelNN
 from optimize import optimize_params
 
+
 # Version
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
-# GPU Configuration
-try:
-    physical_devices = tf.config.list_physical_devices('GPU')
-    tf.config.experimental.set_memory_growth(physical_devices[0], True)
-except Exception as e:
-    print(f'\033[93m[WARNING] Could not activate GPU acceleration: {e}\033[0m')
+# ==========================
+# DEFAULT PARAMETERS
+# ==========================
 
-# Warning filters
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    module="tensorflow.python.data.ops.structured_function"
-)
+default_parameters ={
+                'neurons': 4*1024,
+                'blocks': 4,
+                'l2': 1e-4,
+                'activation': 'elu',
+                'batch_norm': True,
+                'dropout_rate': 0.0,
+                'use_residual' : False,
+                'width' : 'equal',
+                'loss' : 'hybrid',
+                'separate_heads' : False,
+                'head_size' : 512,
+                'head_batch_norm' : True,
+                'gradient_clipping' : 1.0,
+                'epochs' : 10000,
+                'batch_size' : 512,
+                'early_stop' : True,
+                'optimize' : False,
+                'seed' : int(time.time())
+            }
 
 # Logger setup
 module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'sampling'))
@@ -58,6 +70,35 @@ for hdlr in log.handlers[:]:
 log.addHandler(fileHandler)
 log.addHandler(consoleHandler)
 log.setLevel(logging.INFO)
+
+
+# GPU Configuration
+try:
+    physical_devices = tf.config.list_physical_devices('GPU')
+
+    if physical_devices:
+        # CUDA GPU found
+        tf.config.experimental.set_memory_growth(physical_devices[0], True)
+        logging.info(f'Using GPU: {physical_devices[0].name}')
+
+    else:
+        # Try Apple Metal (MPS)
+        mps_devices = tf.config.list_physical_devices('MPS')
+        if mps_devices:
+            logging.info(f'Using Apple MPS device: {mps_devices[0].name}')
+        else:
+            logging.warning('WARNING] No GPU or MPS device found. Running on CPU.')
+
+except Exception as e:
+    logging.warning(f'Could not activate GPU/MPS acceleration: {e}')
+
+# Warning filters
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="tensorflow.python.data.ops.structured_function"
+)
+
 
 
 # ============================================================================
@@ -359,14 +400,21 @@ def build_and_compile_model(parameters, columns, batch_size, train_size):
             gradient_clipping=parameters['gradient_clipping'],
         )
         
-        # Create optimizer (handle Mac M1/M2 compatibility)
-        if platform.system() == "Darwin" and platform.processor() == "arm":
-            optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=lr_schedule)
+        optimizer_name = parameters['optimizer']
+        if optimizer_name == 'Adam':
+            # Create optimizer (handle Mac M1/M2 compatibility)
+            if platform.system() == "Darwin" and platform.processor() == "arm":
+                optimizer = tf.keras.optimizers.legacy.Adam(learning_rate=lr_schedule)
+            else:
+                optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
+        elif optimizer_name == 'AdamW':
+                optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule)
+        elif optimizer_name == 'Lion':
+                optimizer = tf.keras.optimizers.Lion(learning_rate=lr_schedule)
         else:
-            optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
-        
+            raise NotImplementedError(f'Unsupported optimizer: {optimizer_name}')
+        # compile model
         model.compile(optimizer=optimizer, weighted_metrics=[])
-        
         logging.info(f"✓ Model compiled successfully")
         logging.info(f"  Optimizer: {optimizer.__class__.__name__}")
         logging.info(f"  Loss: {parameters['loss']}")
@@ -604,8 +652,21 @@ def main(args):
     start_time = time.process_time_ns()
     
     try:
+        # Get parameters
+        try:
+            with open(args.hyper_params, 'r') as fhyp:
+                parameters = yaml.safe_load(fhyp)
+                hyper_param_keys = parameters.keys()
+                for k,v in default_parameters.items():
+                    if k not in hyper_param_keys:
+                        parameters[k] = v 
+
+        except FileNotFoundError:
+            logging.error(f'Could not open hyper-param file {args.hyper_params}! Using default settings.')
+            parameters = default_parameters
+
         # Set seed for reproducibility
-        set_seed(args.seed)
+        set_seed(parameters['seed'])
         
         # Setup
         outfolder, outpath_model, outpath_aux = create_directories(args.input, args.model_name)
@@ -627,21 +688,14 @@ def main(args):
         train_scaled, val_scaled, test_scaled, mean_arr, std_arr, columns = normalize_data(train, val, test)
         plot_deltas(train_scaled, outpath_aux, True)
         
-        # Get/optimize parameters
-        try:
-            with open(args.hyper_params, 'r') as fhyp:
-                hyper_params = json.load(fhyp)
-        except FileNotFoundError:
-            logging.error(f'Could not open hyper-param file {args.hyper_params}! Using default settings.')
-            hyper_params = default_parameters
 
-        if hyper_params['optimize']:
-            parameters = run_optimization(hyper_params, outfolder, args.model_name, train_scaled, val_scaled,)
+        if parameters['optimize']:
+            parameters = run_optimization(parameters, outfolder, args.model_name, train_scaled, val_scaled,)
         
         logging.info(f'NN parameters: {parameters}')
         
         # Hard reset after optimization
-        if args.optimize:
+        if parameters['optimize']:
             logging.info("Performing memory reset after optimization...")
             tf.keras.backend.clear_session()
             gc.collect()
@@ -663,11 +717,11 @@ def main(args):
         gc.collect()
         
         # Build and compile model
-        model, optimizer = build_and_compile_model(parameters, columns, args.batch_size, len(train_scaled))
+        model, optimizer = build_and_compile_model(parameters, columns, parameters['batch_size'], len(train_scaled))
         
         # Train model
-        history = train_model(model, train_scaled, val_scaled, args.batch_size, args.epochs,
-                            use_early_stopping=args.early_stopping)
+        history = train_model(model, train_scaled, val_scaled, parameters['batch_size'], parameters['epochs'],
+                            use_early_stopping=parameters['early_stop'])
         
         # Calculate training time
         end_time = time.process_time_ns() - start_time
@@ -680,7 +734,7 @@ def main(args):
         bkg_yields, onnx_path = save_onnx_model(
             model, outpath_model, args.model_name, mean_arr, std_arr, shift,
             outfolder, parameters, time_string, args.input, outpath_aux,
-            optimizer_name, args.batch_size, args.early_stopping
+            optimizer_name, parameters['batch_size'], parameters['early_stop']
         )
         
         # Make predictions
@@ -728,10 +782,11 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        'hyper-params',
+        '--hyper-params',
         type=str,
+        default='hyperparams.yaml',
         help='Path to YAML file with hyper-parameters',
-        default='hyperparams.yaml'
+       
     )
     
     parser.add_argument(
@@ -750,31 +805,6 @@ def parse_arguments():
     parser.set_defaults(early_stopping=True)
     
     return parser.parse_args()
-
-# ==========================
-# DEFAULT PARAMETERS
-# ==========================
-
-default_parameters ={
-                'neurons': 4*1024,
-                'blocks': 4,
-                'l2': 1e-4,
-                'activation': 'elu',
-                'batch_norm': True,
-                'dropout_rate': 0.0,
-                'use_residual' : False,
-                'width' : 'equal',
-                'loss' : 'hybrid',
-                'separate_heads' : False,
-                'head_size' : 512,
-                'head_batch_norm' : True,
-                'gradient_clipping' : 1.0,
-                'epochs' : 10000,
-                'batch_size' : 512,
-                'early_stop' : True,
-                'optimize' : False,
-                'seed' : int(time.time())
-            }
 
 if __name__ == '__main__':
     args = parse_arguments()
