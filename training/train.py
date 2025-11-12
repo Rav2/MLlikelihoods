@@ -286,26 +286,16 @@ def normalize_data(train, val, test):
         gc.collect()
 
 
-def get_or_optimize_parameters(outfolder, model_name, train_scaled, val_scaled, optimize=False):
+def run_optimization(hyper_params, outfolder, model_name, train_scaled, val_scaled,):
     """Load existing parameters or run optimization."""
     try:
-        best_trial_path = join(dirname(__file__), '../auxiliary', f'{outfolder}-{model_name}', 'best_trial.txt')
-        
-        if optimize:
-            if not os.path.exists(best_trial_path):
-                parameters = optimize_params(train_scaled, val_scaled, best_trial_path, n_trials=100, n_jobs=5)
-            else:
-                logging.warning('Using existing parameters.')
-                with open(best_trial_path, 'r') as fin:
-                    parameters = json.load(fin)
-        else:
-            parameters = default_parameters
-            with open(best_trial_path, 'w') as fpar:
-                json.dump(parameters, fpar)
-        
+        best_trial_path = join(dirname(__file__), '../auxiliary', f'{outfolder}-{model_name}', 'best_trial.yaml')
+        if not os.path.exists(best_trial_path):
+            logging.warning('{best_trial_path} exists! It will be overwritten by optimization procedure!')
+        parameters = optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=100, n_jobs=5)
         return parameters
     except Exception as e:
-        logging.error(f"Failed to get/optimize parameters: {e}")
+        logging.error(f"Failed to optimize parameters: {e}")
         raise
 
 
@@ -638,8 +628,16 @@ def main(args):
         plot_deltas(train_scaled, outpath_aux, True)
         
         # Get/optimize parameters
-        parameters = get_or_optimize_parameters(outfolder, args.model_name, train_scaled, val_scaled, 
-                                               optimize=args.optimize)
+        try:
+            with open(args.hyper_params, 'r') as fhyp:
+                hyper_params = json.load(fhyp)
+        except FileNotFoundError:
+            logging.error(f'Could not open hyper-param file {args.hyper_params}! Using default settings.')
+            hyper_params = default_parameters
+
+        if hyper_params['optimize']:
+            parameters = run_optimization(hyper_params, outfolder, args.model_name, train_scaled, val_scaled,)
+        
         logging.info(f'NN parameters: {parameters}')
         
         # Hard reset after optimization
@@ -728,46 +726,19 @@ def parse_arguments():
         type=str,
         help='Path to input CSV file'
     )
+
+    parser.add_argument(
+        'hyper-params',
+        type=str,
+        help='Path to YAML file with hyper-parameters',
+        default='hyperparams.yaml'
+    )
     
     parser.add_argument(
         '--model-name',
         type=str,
         default='model',
         help='Name of the model to save'
-    )
-    
-    parser.add_argument(
-        '--batch-size',
-        type=int,
-        default=1024,
-        help='Batch size for training'
-    )
-    
-    parser.add_argument(
-        '--epochs',
-        type=int,
-        default=10000,
-        help='Maximum number of epochs to train'
-    )
-    
-    parser.add_argument(
-        '--seed',
-        type=int,
-        default=int(time.time()),
-        help='Random seed for reproducibility'
-    )
-    
-    parser.add_argument(
-        '--optimize',
-        action='store_true',
-        help='Run hyperparameter optimization'
-    )
-    
-    parser.add_argument(
-        '--no-early-stopping',
-        dest='early_stopping',
-        action='store_false',
-        help='Disable early stopping'
     )
     
     parser.add_argument(
@@ -798,6 +769,11 @@ default_parameters ={
                 'head_size' : 512,
                 'head_batch_norm' : True,
                 'gradient_clipping' : 1.0,
+                'epochs' : 10000,
+                'batch_size' : 512,
+                'early_stop' : True,
+                'optimize' : False,
+                'seed' : int(time.time())
             }
 
 if __name__ == '__main__':
