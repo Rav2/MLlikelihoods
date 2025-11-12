@@ -22,7 +22,7 @@ loss : 'hybrid'
 # train separate heads for each output
 separate_heads : False
 # number of neurons in a head
-head_size : 5120
+head_size : 512
 # use batch norm in heads
 head_batch_norm : True
 # size of the gradient clipping

@@ -1,8 +1,7 @@
 import tensorflow as tf
-import warnings
 import sys
 import os
-import logging
+from logger import *
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -53,26 +52,6 @@ default_parameters ={
                 'seed' : int(time.time())
             }
 
-# Logger setup
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'sampling'))
-sys.path.insert(0, module_path)
-from misc import *
-
-logFormatter = logging.Formatter("%(asctime)s [%(levelname)s]  %(message)s  (%(filename)s:%(lineno)d)")
-fileHandler = logging.FileHandler("log.txt", mode='w')
-fileHandler.setFormatter(logFormatter)
-consoleHandler = logging.StreamHandler()
-consoleFormatter = CustomFormatter()
-consoleHandler.setFormatter(consoleFormatter)
-log = logging.getLogger()
-for hdlr in log.handlers[:]:
-    log.removeHandler(hdlr)
-log.addHandler(fileHandler)
-log.addHandler(consoleHandler)
-log.setLevel(logging.INFO)
-
-
-# GPU Configuration
 try:
     physical_devices = tf.config.list_physical_devices('GPU')
 
@@ -87,18 +66,10 @@ try:
         if mps_devices:
             logging.info(f'Using Apple MPS device: {mps_devices[0].name}')
         else:
-            logging.warning('WARNING] No GPU or MPS device found. Running on CPU.')
+            logging.warning('No GPU or MPS device found. Running on CPU.')
 
 except Exception as e:
     logging.warning(f'Could not activate GPU/MPS acceleration: {e}')
-
-# Warning filters
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    module="tensorflow.python.data.ops.structured_function"
-)
-
 
 
 # ============================================================================
@@ -331,8 +302,8 @@ def run_optimization(hyper_params, outfolder, model_name, train_scaled, val_scal
     """Load existing parameters or run optimization."""
     try:
         best_trial_path = join(dirname(__file__), '../auxiliary', f'{outfolder}-{model_name}', 'best_trial.yaml')
-        if not os.path.exists(best_trial_path):
-            logging.warning('{best_trial_path} exists! It will be overwritten by optimization procedure!')
+        if os.path.exists(best_trial_path):
+            logging.warning(f'{best_trial_path} exists! It will be overwritten by optimization procedure!')
         parameters = optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=100, n_jobs=5)
         return parameters
     except Exception as e:

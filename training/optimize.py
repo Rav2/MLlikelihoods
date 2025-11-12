@@ -6,6 +6,7 @@ import optuna
 from NNmodel import MyModelNN
 import numpy as np
 import gc
+from logger import *
 
 def objective(trial, X_train, y_train, X_val, y_val):
     try:
@@ -15,7 +16,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
             'l2' : trial.suggest_float('l2', 1e-7, 1e-1, log=True),   
             'activation' : trial.suggest_categorical('activation', ['relu', 'elu', 'tanh', 'relu6', 'swish']),
             'width' : trial.suggest_categorical('width', ['equal', ]),
-            'loss' : trial.suggest_categorical('width', ['MSE']), # dummy 
+            'loss' : trial.suggest_categorical('loss', ['MSE']), # dummy 
             'batch_norm' : trial.suggest_categorical('batch_norm', [True, False]),
             'use_residual' : trial.suggest_categorical('use_residual', [True, False]),
             'dropout_rate' : trial.suggest_float('dropout_rate', 0.0, 0.15)
@@ -46,8 +47,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
         )       
         # cleanup
         del model 
-        del history
-        tf.keras,backend.clear_session()
+        tf.keras.backend.clear_session()
         gc.collect()
         return history.history['val_mape'][-1]
 
@@ -100,11 +100,29 @@ def objective(trial, X_train, y_train, X_val, y_val):
         raise
 
 def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=2, n_jobs=1):
-    # we dont need nLL for mu=0 so we disable eager execution for better performance 
-    physical_devices = tf.config.list_physical_devices('GPU')
-    if physical_devices:
-        gpu_details = tf.config.experimental.get_device_details(physical_devices[0])
-    print(f"[INFO] GPU Device: {physical_devices[0].name}")
+
+    try:
+        physical_devices = tf.config.list_physical_devices('GPU')
+        if physical_devices:
+            gpu_details = tf.config.experimental.get_device_details(physical_devices[0])
+            tf.config.experimental.set_memory_growth(physical_devices[0], True)
+            logging.info(f'Using GPU: {physical_devices[0].name}')
+            if 'METAL' in str(gpu_details.get('device_name', '')).upper():
+                logging.warning('Metal/MPS detected - forcing n_jobs=1 for stability')
+                n_jobs = 1
+
+        else:
+            # Try Apple Metal (MPS)
+            mps_devices = tf.config.list_physical_devices('MPS')
+            if mps_devices:
+                logging.info(f'Using Apple MPS device: {mps_devices[0].name}')
+                logging.warning('MPS detected - forcing n_jobs=1 for stability')
+                n_jobs = 1
+            else:
+                logging.warning('No GPU or MPS device found. Running on CPU.')
+    except Exception as e:
+        logging.warning(f'Could not activate GPU/MPS acceleration: {e}')
+
 
     tf.config.run_functions_eagerly(False)
     study = optuna.create_study(direction='minimize')
