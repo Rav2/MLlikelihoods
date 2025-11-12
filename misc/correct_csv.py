@@ -54,7 +54,7 @@ def load_and_inspect_data(input_file):
         sys.exit(1)
 
 
-def clean_outliers(df, outlier_threshold=1e5):
+def clean_outliers(df, low_outlier_threshold, up_outlier_threshold):
     """
     Remove rows with outlier values in specified columns.
     
@@ -83,11 +83,13 @@ def clean_outliers(df, outlier_threshold=1e5):
     
     initial_shape = df.shape
     print(f"\nCleaning outliers from columns: {existing_cols}")
-    print(f"Outlier threshold: {outlier_threshold}")
+    print(f"Lower outlier threshold: {low_outlier_threshold}")
+    print(f"Upper outlier threshold: {up_outlier_threshold}")
     
     # Remove outliers
     for col in existing_cols:
-        df = df[~(df[col] > outlier_threshold)]
+        df = df[~(df[col] > up_outlier_threshold)]
+        df = df[~(df[col] < low_outlier_threshold)]
     
     final_shape = df.shape
     removed_rows = initial_shape[0] - final_shape[0]
@@ -276,10 +278,17 @@ Examples:
     )
     
     parser.add_argument(
-        '--threshold',
+        '--up-threshold',
         type=float,
         default=1e5,
-        help='Outlier threshold value (default: 100000)'
+        help='Upper outlier threshold value (default: 100000)'
+    )
+
+    parser.add_argument(
+        '--low-threshold',
+        type=float,
+        default=1e5,
+        help='Lower outlier threshold value (default: 0.0001)'
     )
     
     return parser.parse_args()
@@ -307,7 +316,7 @@ def main():
     df = load_and_inspect_data(args.input)
     
     # Clean outliers
-    df_cleaned = clean_outliers(df, args.threshold)
+    df_cleaned = clean_outliers(df, args.low_threshold, args.up_threshold)
     
     # Create histograms
     if not args.no_plot:

@@ -363,6 +363,10 @@ def build_and_compile_model(parameters, columns, batch_size, train_size):
             dropout_rate = parameters['dropout_rate'],
             use_residual = parameters['use_residual'],
             width = parameters['width'],
+            separate_heads=parameters['separate_heads'],
+            head_size=parameters['head_size'],
+            head_batch_norm=parameters['head_batch_norm'],
+            gradient_clipping=parameters['gradient_clipping'],
         )
         
         # Create optimizer (handle Mac M1/M2 compatibility)
@@ -781,17 +785,22 @@ def parse_arguments():
 # ==========================
 
 default_parameters ={
-                'neurons': 1024*10,
-                'blocks': 3,
+                'neurons': 4*1024,
+                'blocks': 4,
                 'l2': 1e-4,
                 'activation': 'elu',
                 'batch_norm': True,
                 'dropout_rate': 0.0,
                 'use_residual' : False,
                 'width' : 'equal',
-                'loss' : 'hybrid'
+                'loss' : 'hybrid',
+                'separate_heads' : False,
+                'head_size' : 512,
+                'head_batch_norm' : True,
+                'gradient_clipping' : 1.0,
             }
 
 if __name__ == '__main__':
     args = parse_arguments()
     main(args)
+      
