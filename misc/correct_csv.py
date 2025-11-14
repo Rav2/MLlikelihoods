@@ -1,24 +1,10 @@
-#!/usr/bin/env python3
-"""
-correct_csv.py - CSV Data Processing Script
-
-This script processes a CSV file containing physics data by:
-1. Loading the CSV data
-2. Cleaning outliers from specified columns
-3. Generating histogram plots of test statistics (observed and Asimov)
-4. Saving the cleaned data to an output file
-
-Usage:
-    python correct_csv.py input.csv
-    python correct_csv.py input.csv -o output.csv
-    python correct_csv.py input.csv --output cleaned_data.csv --no-save --threshold 50000
-"""
-
 import argparse
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+import shutil
+import json
 
 
 def load_and_inspect_data(input_file):
@@ -287,7 +273,7 @@ Examples:
     parser.add_argument(
         '--low-threshold',
         type=float,
-        default=1e5,
+        default=1e-5,
         help='Lower outlier threshold value (default: 0.0001)'
     )
     
@@ -328,6 +314,37 @@ def main():
         save_cleaned_data(df_cleaned, output_file)
     else:
         print("Skipping data save (--no-save flag used)")
+    
+    # Copy and update JSON file with metadata
+    src = args.input.replace('.csv', '.json')
+    output_path = Path(output_file)
+    
+    # Handle output file with or without extension
+    if output_path.suffix == '.csv':
+        dst = str(output_path.with_suffix('.json'))
+    else:
+        # No extension provided, append .json
+        dst = str(output_path) + '.json'
+    
+    try:
+        if Path(src).exists():
+            # Read the original JSON file
+            with open(src, 'r') as f:
+                metadata = json.load(f)
+            
+            # Update metadata fields
+            metadata['total_points'] = len(df_cleaned)
+            metadata['modified'] = True
+            
+            # Write updated metadata to destination
+            with open(dst, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            
+            print(f"Metadata updated: total_points = {len(df_cleaned)}")
+        else:
+            print(f"Warning: JSON file not found at {src}")
+    except Exception as e:
+        print(f"Warning: Could not process JSON file: {e}")
     
     print("\nProcessing completed successfully!")
 
