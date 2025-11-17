@@ -6,18 +6,15 @@ from keras import backend
 from keras import layers
 from keras.metrics import MeanMetricWrapper
 
-
 def mean_fourth_error(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
     return backend.mean(tf.math.square(tf.math.squared_difference(y_pred, y_true)), axis=-1)
 
-
 def mixed_loss(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
     return 1e-2*backend.mean(tf.math.square(tf.math.squared_difference(y_pred, y_true)), axis=-1) + backend.mean(tf.math.squared_difference(y_pred, y_true), axis=-1)
-
 
 def mean_squared_error_loss(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
@@ -29,9 +26,29 @@ def mean_absolute_error_loss(y_true, y_pred):
     y_true = tf.cast(y_true, y_pred.dtype)
     return tf.keras.metrics.mean_absolute_error(y_true, y_pred)
 
-
 def mean_absolute_percentage_error(y_true, y_pred):
     y_pred = tf.convert_to_tensor(y_pred)
     y_true = tf.cast(y_true, y_pred.dtype)
-    return 100*backend.mean( tf.math.abs( tf.math.reciprocal_no_nan(y_true) * tf.subtract(y_true, y_pred) ) )
+    # Should average over output dimension, not all dimensions
+    return tf.reduce_mean(100 * tf.math.abs(tf.math.reciprocal_no_nan(y_true) * tf.subtract(y_true, y_pred)), axis=-1)
 
+def hybrid_loss(y_true, y_pred, alpha=0.5):
+    abs_loss = tf.abs(y_true-y_pred)
+    rel_loss = tf.abs(y_true-y_pred)/(tf.abs(y_true)+1e-3)
+    # ✅ Average over output dimension only, return per-sample loss
+    return tf.reduce_mean(alpha*abs_loss+(1-alpha)*rel_loss, axis=-1)
+
+def log_cosh_loss(y_true, y_pred):
+    """Log-cosh loss - smooth approximation of MAE, less sensitive to outliers"""
+    diff = y_pred - y_true
+    # ✅ Average over output dimension
+    return tf.reduce_mean(tf.math.log(tf.cosh(diff)), axis=-1)
+
+def triple_loss(y_true, y_pred):
+    y_pred = tf.convert_to_tensor(y_pred)
+    y_true = tf.cast(y_true, y_pred.dtype)
+    absolute  = tf.abs(y_true-y_pred)
+    rooted = tf.math.sqrt(absolute+1e-7) # eps for stability
+    squared = tf.math.squared_difference(y_pred, y_true)
+    # ✅ Average over output dimension
+    return tf.reduce_mean(1.0*rooted + 0.1*absolute + 0.01*squared, axis=-1)
