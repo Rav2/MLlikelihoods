@@ -15,7 +15,6 @@ def objective(trial, X_train, y_train, X_val, y_val):
             'blocks' : trial.suggest_int('blocks', 3, 6),
             'l2' : trial.suggest_float('l2', 1e-7, 1e-1, log=True),   
             'activation' : trial.suggest_categorical('activation', ['relu', 'elu', 'tanh', 'relu6', 'swish']),
-            'width' : trial.suggest_categorical('width', ['equal', ]),
             'loss' : trial.suggest_categorical('loss', ['MSE']), # dummy 
             'batch_norm' : trial.suggest_categorical('batch_norm', [True, False]),
             'use_residual' : trial.suggest_categorical('use_residual', [True, False]),
@@ -30,7 +29,6 @@ def objective(trial, X_train, y_train, X_val, y_val):
                                 batch_norm = param['batch_norm'],
                                 dropout_rate = param['dropout_rate'],
                                 use_residual = param['use_residual'],
-                                width = param['width'],  
                                 )
         model.compile(optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=1e-3, ))
         X_train_subset = X_train[::10].values.astype(np.float32)
@@ -53,7 +51,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
 
     except (tf.errors.ResourceExhaustedError, tf.errors.InternalError) as e:
         print(f"[WARNING] Trial {trial.number} failed with GPU error: {type(e).__name__}")
-        print(f"         Params: neurons={param['neurons']}, blocks={param['blocks']}, width={param['width']}")
+        print(f"         Params: neurons={param['neurons']}, blocks={param['blocks']}")
         
         # Aggressive cleanup
         try:

@@ -1,6 +1,6 @@
 author: 'Rafal Maselek'
 # base number of neurons in each layer
-neurons: 4096
+neurons: 2048
 # how many blocks (block=dense+batch_norm+activation+dropout)
 blocks: 4
 # L2 regularisation
@@ -13,9 +13,6 @@ batch_norm: True
 dropout_rate: 0.0
 # use residual connections to all blocks
 use_residual : False
-# equal -- all blocks have the same size, 
-# expand/contract -- start from 'neurons' and then grow/reduce size by 2 for each block
-width : 'equal'
 # loss: MSE, M4E, MAE, MAPE, hybrid, huber, log_cosh, triple, MSLE
 # see losses.py for definitions
 loss : 'hybrid'
