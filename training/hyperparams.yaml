@@ -1,8 +1,8 @@
 author: 'Rafal Maselek'
 # base number of neurons in each layer
-neurons: 2048
+neurons: 4096
 # how many blocks (block=dense+batch_norm+activation+dropout)
-blocks: 4
+blocks: 5
 # L2 regularisation
 l2: 0.0001
 # activateion: relu, relu6, tanh, elu, swish
@@ -25,12 +25,12 @@ head_batch_norm : True
 # size of the gradient clipping
 gradient_clipping : 1.0
 # epochs to train
-epochs: 1
+epochs: 10000
 # random seed, leave it commented out for random
 #seed: 0
-batch_size: 512
+batch_size: 1024
 # optimizer: Adam, AdamW
-optimizer: 'Lion'
+optimizer: 'Adam'
 early_stop: true
 optimize: false
 
