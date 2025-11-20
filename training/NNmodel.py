@@ -239,6 +239,14 @@ class MyModelNN(keras.Model):
             self.loss_metric = triple_loss
         elif loss == 'MSLE':
             self.loss_metric = keras.losses.MeanSquaredLogarithmicError()
+        elif loss == 'hybrid-weighted':
+            self.loss_metric = weighted_hybrid_loss
+        elif loss == 'adaptive-weighted':
+            self.loss_metric = adaptive_weighted_loss
+        elif loss == 'log_cosh-weighted':
+            self.loss_metric = weighted_log_cosh_loss
+        elif loss == 'triple-weighted':
+            self.loss_metric = weighted_triple_loss
         else:
             raise ValueError('[ERROR] Unknown loss!')
         self.loss_tracker = keras.metrics.Mean(name="loss")

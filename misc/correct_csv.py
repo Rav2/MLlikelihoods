@@ -104,6 +104,31 @@ def identify_yield_columns(df):
     return yield_cols
 
 
+def identify_nll_columns(df):
+    """
+    Identify nLL/nLLA columns (test statistic columns).
+    
+    Args:
+        df (pd.DataFrame): Input dataframe
+        
+    Returns:
+        list: List of nLL/nLLA column names
+    """
+    nll_patterns = ['nLL', 'nLLA']
+    
+    nll_cols = []
+    found_first = False
+    for col in df.columns:
+        if any(pattern in col for pattern in nll_patterns):
+            nll_cols.append(col)
+            found_first = True
+        elif found_first:
+            break
+    
+    logger.debug(f"Identified {len(nll_cols)} nLL/nLLA columns: {nll_cols}")
+    return nll_cols
+
+
 def validate_thresholds(low_threshold, up_threshold, zscore_threshold):
     """
     Validate threshold values.
@@ -209,13 +234,13 @@ def print_removal_summary(removal_counts, total_removed, initial_rows, method_na
     logger.info("")
 
 
-def clean_outliers_range(df, yield_cols, low_threshold, up_threshold, dry_run=False):
+def clean_outliers_range(df, nll_cols, low_threshold, up_threshold, dry_run=False):
     """
-    Remove rows with values outside specified range in yield columns.
+    Remove rows with values outside specified range in nLL/nLLA columns.
     
     Args:
         df (pd.DataFrame): Input dataframe
-        yield_cols (list): List of yield column names
+        nll_cols (list): List of nLL/nLLA column names
         low_threshold (float): Lower threshold
         up_threshold (float): Upper threshold
         dry_run (bool): If True, only report what would be removed
@@ -223,7 +248,7 @@ def clean_outliers_range(df, yield_cols, low_threshold, up_threshold, dry_run=Fa
     Returns:
         tuple: (cleaned dataframe or original, removal_counts dict)
     """
-    logger.info(f"Cleaning outliers based on range thresholds")
+    logger.info(f"Cleaning outliers based on range thresholds (nLL/nLLA columns only)")
     logger.debug(f"Lower threshold: {low_threshold}, Upper threshold: {up_threshold}")
     
     initial_shape = df.shape
@@ -231,17 +256,17 @@ def clean_outliers_range(df, yield_cols, low_threshold, up_threshold, dry_run=Fa
     
     # Create mask for rows to remove and track which column caused it
     mask_remove = pd.Series([False] * len(df), index=df.index)
-    removal_per_column = {col: pd.Series([False] * len(df), index=df.index) for col in yield_cols}
+    removal_per_column = {col: pd.Series([False] * len(df), index=df.index) for col in nll_cols}
     
-    for col in yield_cols:
+    for col in nll_cols:
         out_of_range = (df[col] < low_threshold) | (df[col] > up_threshold)
         removal_per_column[col] = out_of_range
         mask_remove |= out_of_range
     
     # Count removals per column (first column that caused removal)
-    removal_counts = {col: 0 for col in yield_cols}
+    removal_counts = {col: 0 for col in nll_cols}
     for idx in df.index[mask_remove]:
-        for col in yield_cols:
+        for col in nll_cols:
             if removal_per_column[col].loc[idx]:
                 removal_counts[col] += 1
                 break
@@ -249,7 +274,7 @@ def clean_outliers_range(df, yield_cols, low_threshold, up_threshold, dry_run=Fa
     rows_to_remove = mask_remove.sum()
     
     # Print summary
-    print_removal_summary(removal_counts, rows_to_remove, initial_rows, "Range-based")
+    print_removal_summary(removal_counts, rows_to_remove, initial_rows, "Range-based (nLL/nLLA)")
     
     if dry_run:
         logger.info(f"[DRY-RUN] Would remove {rows_to_remove} rows based on range thresholds")
@@ -511,6 +536,8 @@ def save_cleaned_data(df, output_file):
         df (pd.DataFrame): Cleaned dataframe to save
         output_file (str): Path to the output CSV file
     """
+    if len(output_file) > 4 and output_file[-4:] != '.csv':
+        output_file = output_file + '.csv'
     logger.info(f"Saving cleaned data to: {output_file}")
     
     try:
@@ -662,36 +689,46 @@ def main():
     df = load_and_inspect_data(args.input)
     initial_rows = df.shape[0]
     
-    # Identify yield columns
+    # Identify yield and nLL columns
     yield_cols = identify_yield_columns(df)
     if not yield_cols:
         logger.error("No yield columns found in the dataset")
         sys.exit(1)
+    
+    nll_cols = identify_nll_columns(df)
+    if not nll_cols:
+        logger.warning("No nLL/nLLA columns found in the dataset")
     
     logger.info(f"Initial dataset: {initial_rows} rows")
     
     # Validate thresholds
     validate_thresholds(args.low_threshold, args.up_threshold, args.zscore_threshold)
     
-    # Clean outliers based on range
-    df_cleaned, removal_counts_range = clean_outliers_range(df, yield_cols, args.low_threshold, 
+    # Calculate z-scores on original data BEFORE any filtering
+    # This ensures z-score histograms show the true distribution
+    logger.debug("Calculating z-scores on original dataset for visualization")
+    zscores_original = pd.DataFrame(index=df.index)
+    for col in yield_cols:
+        mean_val = df[col].mean()
+        std_val = df[col].std()
+        zscores_original[col] = np.abs((df[col] - mean_val) / std_val)
+    
+    # Clean outliers based on range (nLL/nLLA columns only)
+    df_cleaned, removal_counts_range = clean_outliers_range(df, nll_cols, args.low_threshold, 
                                                              args.up_threshold, args.dry_run)
     
     # Clean outliers based on z-score if specified
     zscores = None
     removal_counts_zscore = None
     if args.zscore_threshold is not None:
-        df_cleaned, zscores, removal_counts_zscore = clean_outliers_zscore(df_cleaned, yield_cols, 
-                                                                             args.zscore_threshold, args.dry_run)
+        # Recalculate z-scores on the already range-filtered data for removal purposes
+        df_cleaned, zscores_filtered, removal_counts_zscore = clean_outliers_zscore(df_cleaned, yield_cols, 
+                                                                                      args.zscore_threshold, args.dry_run)
+        # But use the original z-scores for plotting (to show true distribution)
+        zscores = zscores_original.loc[df_cleaned.index]
     else:
-        # Still calculate z-scores for plotting even if no threshold is applied
-        if not args.no_plot:
-            logger.debug("Calculating z-scores for visualization purposes")
-            zscores = pd.DataFrame(index=df_cleaned.index)
-            for col in yield_cols:
-                mean_val = df_cleaned[col].mean()
-                std_val = df_cleaned[col].std()
-                zscores[col] = np.abs((df_cleaned[col] - mean_val) / std_val)
+        # Use original z-scores for plotting
+        zscores = zscores_original.loc[df_cleaned.index]
     
     # Print total removal summary
     total_removed = initial_rows - df_cleaned.shape[0]
