@@ -15,7 +15,7 @@ dropout_rate: 0.0
 use_residual : False
 # loss: MSE, M4E, MAE, MAPE, hybrid, huber, log_cosh, triple, MSLE
 # see losses.py for definitions
-loss : 'triple'
+loss : 'MAE'
 # train separate heads for each output
 separate_heads : False
 # number of neurons in a head

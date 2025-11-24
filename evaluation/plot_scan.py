@@ -347,6 +347,71 @@ def create_lratio_histograms(df, num_yield_cols, output_dir):
         logger.exception("Error creating likelihood-ratio histograms.")
         raise
 
+def create_nlls_histograms(df, num_yield_cols, output_dir):
+    """Create nLLS (negative log-likelihood sum) histogram distributions.
+    
+    Args:
+        df: DataFrame with yields followed by 8 -logL columns
+        num_yield_cols: Number of yield columns (SR + CR channels)
+        output_dir: Output directory for plots
+    """
+    logger.info("Creating nLLS histograms...")
+    
+    try:
+        if df.shape[1] < num_yield_cols + 8:
+            logger.warning(f"DataFrame has {df.shape[1]} columns but expected at least {num_yield_cols + 8}. Skipping nLLS histograms.")
+            return
+        
+        # Define the 4 nLLS pairs (sum of both -logL values)
+        labels = [
+            (r"nLLS (exp)", num_yield_cols, num_yield_cols + 1),
+            (r"nLLS (obs)", num_yield_cols + 2, num_yield_cols + 3),
+            (r"nLLS (exp, Asimov)", num_yield_cols + 4, num_yield_cols + 5),
+            (r"nLLS (obs, Asimov)", num_yield_cols + 6, num_yield_cols + 7),
+        ]
+        
+        nbins = 60
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        axs = axs.flatten()
+        
+        for i, (label_name, idx_mu0, idx_mu1) in enumerate(labels):
+            try:
+                # Get the two columns
+                vals_mu1 = pd.to_numeric(df.iloc[:, idx_mu1], errors="coerce")
+                
+                nlls_vals = vals_mu1
+                
+                # Plot histogram
+                valid_vals = nlls_vals.dropna()
+                if len(valid_vals) == 0:
+                    logger.warning(f"No valid values for {label_name}")
+                    continue
+                    
+                axs[i].hist(valid_vals, bins=nbins, histtype="stepfilled", alpha=0.7, lw=2, label=label_name)
+                axs[i].set_yscale("log")
+                axs[i].set_xlabel(label_name)
+                axs[i].set_ylabel("Counts")
+                axs[i].legend()
+                axs[i].grid(True, alpha=0.3)
+                
+                # Log statistics
+                median = np.median(valid_vals)
+                mean = np.mean(valid_vals)
+                logger.info(f"{label_name}: mean={mean:.3f}, median={median:.3f}, std={np.std(valid_vals):.3f}")
+                
+            except Exception:
+                logger.exception(f"Error processing {label_name}")
+                continue
+        
+        plt.tight_layout()
+        out_path = os.path.join(output_dir, "nLLS_histograms.pdf")
+        plt.savefig(out_path, dpi=300)
+        plt.close()
+        logger.info(f"Saved nLLS histograms: {out_path}")
+        
+    except Exception:
+        logger.exception("Error creating nLLS histograms.")
+        raise
 
 # -----------------------------
 # New diagnostic plots
@@ -648,7 +713,8 @@ def main():
 
         # Merged likelihood ratio histograms
         create_lratio_histograms(df, num_yield_cols, output_dir)
-
+        # nLL histograms
+        create_nlls_histograms(df, num_yield_cols, output_dir)
         # ---- Diagnostic plots ----
         # Outlier detection (z-score histogram only)
         selected_for_outliers = SRs + CRs

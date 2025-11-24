@@ -119,7 +119,7 @@ def identify_nll_columns(df):
     nll_cols = []
     found_first = False
     for col in df.columns:
-        if any(pattern in col for pattern in nll_patterns):
+        if any(pattern in col for pattern in nll_patterns) and '0' not in col:
             nll_cols.append(col)
             found_first = True
         elif found_first:
@@ -249,7 +249,7 @@ def clean_outliers_range(df, nll_cols, low_threshold, up_threshold, dry_run=Fals
         tuple: (cleaned dataframe or original, removal_counts dict)
     """
     logger.info(f"Cleaning outliers based on range thresholds (nLL/nLLA columns only)")
-    logger.debug(f"Lower threshold: {low_threshold}, Upper threshold: {up_threshold}")
+    logger.info(f"Lower threshold: {low_threshold}, Upper threshold: {up_threshold}")
     
     initial_shape = df.shape
     initial_rows = initial_shape[0]
