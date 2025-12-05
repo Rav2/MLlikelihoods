@@ -10,763 +10,332 @@ from datetime import datetime
 
 # Simple logging system
 class Logger:
-    """Simple logging system with different log levels."""
-    
-    LEVELS = {
-        'DEBUG': 0,
-        'INFO': 1,
-        'WARNING': 2,
-        'ERROR': 3
-    }
-    
+    LEVELS = {'DEBUG': 0, 'INFO': 1, 'WARNING': 2, 'ERROR': 3}
+
     def __init__(self, verbosity='INFO'):
         self.verbosity = self.LEVELS.get(verbosity.upper(), 1)
-    
+
     def _log(self, level, message):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if self.LEVELS[level] >= self.verbosity:
             print(f"[{timestamp}] [{level}] {message}")
-    
-    def debug(self, message):
-        self._log('DEBUG', message)
-    
-    def info(self, message):
-        self._log('INFO', message)
-    
-    def warning(self, message):
-        self._log('WARNING', message)
-    
-    def error(self, message):
-        self._log('ERROR', message)
 
+    def debug(self, message): self._log('DEBUG', message)
+    def info(self, message): self._log('INFO', message)
+    def warning(self, message): self._log('WARNING', message)
+    def error(self, message): self._log('ERROR', message)
 
 logger = Logger()
 
 
-def load_and_inspect_data(input_file):
-    """
-    Load CSV data and display basic information about the dataset.
-    
-    Args:
-        input_file (str): Path to the input CSV file
-        
-    Returns:
-        pd.DataFrame: Loaded dataframe
-        
-    Raises:
-        FileNotFoundError: If the input file doesn't exist
-        pd.errors.EmptyDataError: If the CSV file is empty
-    """
-    logger.info(f"Loading data from: {input_file}")
-    
+def load_csv(file_path):
+    logger.info(f"Loading CSV: {file_path}")
     try:
-        if not input_file.lower().endswith('.csv'):
-            logger.warning(f"Input file does not have .csv extension: {input_file}")
-        
-        df = pd.read_csv(input_file)
-        logger.info(f"Data loaded successfully")
-        logger.info(f"Dataset shape: {df.shape[0]} rows × {df.shape[1]} columns")
-        logger.debug(f"Columns: {df.columns.tolist()}")
-        logger.info(f"First 5 rows:\n{df.head()}")
-        
+        df = pd.read_csv(file_path)
+        logger.info(f"Loaded {df.shape[0]} rows x {df.shape[1]} columns")
         return df
-    except FileNotFoundError:
-        logger.error(f"Input file '{input_file}' not found")
-        sys.exit(1)
-    except pd.errors.EmptyDataError:
-        logger.error(f"Input file '{input_file}' is empty")
-        sys.exit(1)
     except Exception as e:
-        logger.error(f"Error loading data: {e}")
+        logger.error(f"Failed to load CSV: {e}")
         sys.exit(1)
 
 
-def identify_yield_columns(df):
-    """
-    Identify yield columns (all columns before nLL/nLLA columns).
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        
-    Returns:
-        list: List of yield column names
-    """
+def identify_yield_cols(df):
     nll_patterns = ['nLL', 'nLLA']
-    
     yield_cols = []
     for col in df.columns:
-        if not any(pattern in col for pattern in nll_patterns):
+        if not any(p in col for p in nll_patterns):
             yield_cols.append(col)
         else:
             break
-    
-    logger.debug(f"Identified {len(yield_cols)} yield columns: {yield_cols}")
     return yield_cols
 
 
-def identify_nll_columns(df):
-    """
-    Identify nLL/nLLA columns (test statistic columns).
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        
-    Returns:
-        list: List of nLL/nLLA column names
-    """
+def identify_nll_cols(df):
     nll_patterns = ['nLL', 'nLLA']
-    
     nll_cols = []
     found_first = False
     for col in df.columns:
-        if any(pattern in col for pattern in nll_patterns) and '0' not in col:
+        if any(p in col for p in nll_patterns) and '0' not in col:
             nll_cols.append(col)
             found_first = True
         elif found_first:
             break
-    
-    logger.debug(f"Identified {len(nll_cols)} nLL/nLLA columns: {nll_cols}")
     return nll_cols
 
 
-def validate_thresholds(low_threshold, up_threshold, zscore_threshold):
-    """
-    Validate threshold values.
-    
-    Args:
-        low_threshold (float): Lower outlier threshold
-        up_threshold (float): Upper outlier threshold
-        zscore_threshold (float): Z-score threshold (or None if not set)
-        
-    Returns:
-        bool: True if all thresholds are valid
-    """
-    logger.info("Validating threshold values")
-    
-    if low_threshold >= up_threshold:
-        logger.error(f"Invalid thresholds: low_threshold ({low_threshold}) >= up_threshold ({up_threshold})")
-        sys.exit(1)
-    
-    if zscore_threshold is not None and zscore_threshold <= 0:
-        logger.error(f"Z-score threshold must be positive, got: {zscore_threshold}")
-        sys.exit(1)
-    
-    logger.info(f"Threshold validation passed")
-    logger.debug(f"  Low threshold: {low_threshold}")
-    logger.debug(f"  Up threshold: {up_threshold}")
-    if zscore_threshold is not None:
-        logger.debug(f"  Z-score threshold: {zscore_threshold}")
-    
-    return True
+def compute_deltas(df):
+    """Compute all 4 deltas, multiply by 2, and return as dictionary"""
+    delta_pairs = [
+        ('nLL_exp_mu0', 'nLL_exp_mu1'),
+        ('nLL_obs_mu0', 'nLL_obs_mu1'),
+        ('nLLA_exp_mu0', 'nLLA_exp_mu1'),
+        ('nLLA_obs_mu0', 'nLLA_obs_mu1')
+    ]
+
+    delta_dict = {}
+
+    for a, b in delta_pairs:
+        if a in df.columns and b in df.columns:
+            delta_col = f"{a}_vs_{b}"
+            delta_dict[delta_col] = 2 * (df[b] - df[a])
+
+    return delta_dict
 
 
-def count_removals_per_column(df, yield_cols, mask_remove):
-    """
-    Count removed rows per column, assigning each removed row to the first column
-    that caused its removal.
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        yield_cols (list): List of yield column names
-        mask_remove (pd.Series): Boolean mask of rows to remove
-        
-    Returns:
-        dict: Dictionary with column names as keys and removal counts as values
-    """
-    removal_counts = {col: 0 for col in yield_cols}
-    
-    # For each row that needs to be removed, find the first column that caused it
-    for idx in df.index[mask_remove]:
-        for col in yield_cols:
-            if idx in df.index and pd.notna(df.loc[idx, col]):
-                # Check if this row violates the removal criteria for this column
-                # (we'll pass the check function as parameter from caller)
-                removal_counts[col] += 1
-                break
-    
-    return removal_counts
-
-
-def print_removal_summary(removal_counts, total_removed, initial_rows, method_name):
-    """
-    Print ASCII histogram and summary of removed rows per column.
-    
-    Args:
-        removal_counts (dict): Dictionary with column names and removal counts
-        total_removed (int): Total number of rows removed
-        initial_rows (int): Initial number of rows in dataset
-        method_name (str): Name of the removal method (e.g., "Range-based")
-    """
-    if total_removed == 0:
-        logger.info(f"{method_name}: No rows removed")
-        return
-    
-    logger.info(f"{method_name} removal summary:")
-    logger.info(f"  Initial rows: {initial_rows}")
-    logger.info(f"  Total removed: {total_removed} ({100*total_removed/initial_rows:.2f}%)")
-    
-    # Filter and sort by count (highest first)
-    filtered_counts = {col: count for col, count in removal_counts.items() if count > 0}
-    sorted_counts = sorted(filtered_counts.items(), key=lambda x: x[1], reverse=True)
-    
-    if not sorted_counts:
-        logger.info("No columns with removed rows")
-        return
-    
-    # Find max count for scaling
-    max_count = sorted_counts[0][1]
-    max_bar_width = 40
-    
-    # Calculate terminal-friendly column width
-    col_width = min(35, max(len(col) for col, _ in sorted_counts))
-    
-    logger.info("")
-    logger.info("Rows removed per column (sorted by count):")
-    logger.info("-" * (col_width + max_bar_width + 30))
-    
-    for col, count in sorted_counts:
-        percentage = 100 * count / initial_rows
-        bar_width = int((count / max_count) * max_bar_width) if max_count > 0 else 0
-        bar = "█" * bar_width
-        logger.info(f"  {col:{col_width}s} | {bar:{max_bar_width}s} | {count:7d} ({percentage:6.2f}%)")
-    
-    logger.info("-" * (col_width + max_bar_width + 30))
-    logger.info("")
-
-
-def clean_outliers_range(df, nll_cols, low_threshold, up_threshold, dry_run=False):
-    """
-    Remove rows with values outside specified range in nLL/nLLA columns.
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        nll_cols (list): List of nLL/nLLA column names
-        low_threshold (float): Lower threshold
-        up_threshold (float): Upper threshold
-        dry_run (bool): If True, only report what would be removed
-        
-    Returns:
-        tuple: (cleaned dataframe or original, removal_counts dict)
-    """
-    logger.info(f"Cleaning outliers based on range thresholds (nLL/nLLA columns only)")
-    logger.info(f"Lower threshold: {low_threshold}, Upper threshold: {up_threshold}")
-    
-    initial_shape = df.shape
-    initial_rows = initial_shape[0]
-    
-    # Create mask for rows to remove and track which column caused it
-    mask_remove = pd.Series([False] * len(df), index=df.index)
-    removal_per_column = {col: pd.Series([False] * len(df), index=df.index) for col in nll_cols}
-    
-    for col in nll_cols:
-        out_of_range = (df[col] < low_threshold) | (df[col] > up_threshold)
-        removal_per_column[col] = out_of_range
-        mask_remove |= out_of_range
-    
-    # Count removals per column (first column that caused removal)
-    removal_counts = {col: 0 for col in nll_cols}
-    for idx in df.index[mask_remove]:
-        for col in nll_cols:
-            if removal_per_column[col].loc[idx]:
-                removal_counts[col] += 1
-                break
-    
-    rows_to_remove = mask_remove.sum()
-    
-    # Print summary
-    print_removal_summary(removal_counts, rows_to_remove, initial_rows, "Range-based (nLL/nLLA)")
-    
-    if dry_run:
-        logger.info(f"[DRY-RUN] Would remove {rows_to_remove} rows based on range thresholds")
-        return df, removal_counts
-    else:
-        df_cleaned = df[~mask_remove]
-        logger.info(f"Removed {rows_to_remove} rows based on range thresholds")
-        logger.info(f"Dataset shape: {initial_shape} → {df_cleaned.shape}")
-        return df_cleaned, removal_counts
-
-
-def clean_outliers_zscore(df, yield_cols, zscore_threshold, dry_run=False):
-    """
-    Remove rows with z-score values exceeding threshold in yield columns.
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        yield_cols (list): List of yield column names
-        zscore_threshold (float): Z-score threshold (standard deviations from mean)
-        dry_run (bool): If True, only report what would be removed
-        
-    Returns:
-        tuple: (cleaned dataframe or original, zscore dataframe, removal_counts dict)
-    """
-    logger.info(f"Applying z-score based outlier removal (threshold: {zscore_threshold}σ)")
-    
-    initial_rows = df.shape[0]
-    
-    # Calculate z-scores for all yield columns
+def zscore_filter(df, yield_cols, z_threshold):
+    """Apply z-score filtering to yield columns"""
     zscores = pd.DataFrame(index=df.index)
     for col in yield_cols:
-        mean_val = df[col].mean()
-        std_val = df[col].std()
-        zscores[col] = np.abs((df[col] - mean_val) / std_val)
-        logger.debug(f"  Column '{col}': μ={mean_val:.6f}, σ={std_val:.6f}")
-    
-    # Create mask for rows to remove (where any column exceeds threshold)
-    exceeds_threshold = zscores > zscore_threshold
-    mask_remove = exceeds_threshold.any(axis=1)
-    
-    # Count removals per column (first column that caused removal)
-    removal_counts = {col: 0 for col in yield_cols}
-    for idx in df.index[mask_remove]:
-        for col in yield_cols:
-            if exceeds_threshold.loc[idx, col]:
-                removal_counts[col] += 1
-                break
-    
-    rows_to_remove = mask_remove.sum()
-    
-    # Print summary
-    print_removal_summary(removal_counts, rows_to_remove, initial_rows, "Z-score based")
-    
-    if dry_run:
-        logger.info(f"[DRY-RUN] Would remove {rows_to_remove} rows based on z-score threshold")
-        return df, zscores, removal_counts
-    else:
-        logger.info(f"Removed {rows_to_remove} rows based on z-score threshold")
-        logger.info(f"Dataset shape: {df.shape} → {df[~mask_remove].shape}")
-        return df[~mask_remove], zscores, removal_counts
-
-
-def create_histogram_plots(df, yield_cols, save_plot=False, output_dir="./"):
-    """
-    Create and display/save histograms of test statistics.
-    
-    Args:
-        df (pd.DataFrame): Input dataframe
-        yield_cols (list): List of yield column names
-        save_plot (bool): Whether to save the plot to file
-        output_dir (str): Directory to save the plot
-    """
-    logger.info(f"Creating test statistics histograms for {len(yield_cols)} yield columns")
-    
-    # Define nLL/nLLA test statistics
-    test_stats = [
-        {
-            'cols': ['nLL_exp_mu0', 'nLL_exp_mu1'],
-            'name': 'ΔnLL (Expected)',
-            'title': 'Expected μ₁ - μ₀'
-        },
-        {
-            'cols': ['nLL_obs_mu0', 'nLL_obs_mu1'],
-            'name': 'ΔnLL (Observed)',
-            'title': 'Observed μ₁ - μ₀'
-        },
-        {
-            'cols': ['nLLA_exp_mu0', 'nLLA_exp_mu1'],
-            'name': 'ΔnLLA (Asimov Expected)',
-            'title': 'Asimov Expected μ₁ - μ₀'
-        },
-        {
-            'cols': ['nLLA_obs_mu0', 'nLLA_obs_mu1'],
-            'name': 'ΔnLLA (Asimov Observed)',
-            'title': 'Asimov Observed μ₁ - μ₀'
-        }
-    ]
-    
-    # Check which test statistics can be calculated
-    available_stats = []
-    for stat in test_stats:
-        if all(col in df.columns for col in stat['cols']):
-            available_stats.append(stat)
+        mean = df[col].mean()
+        std = df[col].std()
+        if std > 0:
+            zscores[col] = np.abs((df[col] - mean) / std)
         else:
-            missing = [col for col in stat['cols'] if col not in df.columns]
-            logger.debug(f"Cannot plot {stat['name']}. Missing columns: {missing}")
+            zscores[col] = 0.0
+            logger.warning(f"Column {col} has zero standard deviation")
+
+    mask = zscores.gt(z_threshold).any(axis=1)
+    removal_counts = {}
+    for col in yield_cols:
+        count = (zscores[col] > z_threshold).sum()
+        if count > 0:
+            removal_counts[col] = count
+
+    total_removed = mask.sum()
+    percent_removed = 100 * total_removed / len(df)
+    logger.info(f"Z-score filter ({z_threshold}σ) removal summary: removed {total_removed}/{len(df)} ({percent_removed:.2f}%)")
     
-    if not available_stats:
-        logger.warning("Cannot create nLL/nLLA histograms. Required columns are missing.")
-    else:
-        # Create subplots for nLL/nLLA statistics
-        n_plots = len(available_stats)
-        n_cols = min(2, n_plots)
-        n_rows = (n_plots + n_cols - 1) // n_cols
-        
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
-        fig.suptitle('Distribution of Test Statistics (nLL/nLLA)', 
-                     fontsize=14, fontweight='bold')
-        
-        if n_plots == 1:
-            axes = [axes]
-        else:
-            axes = axes.flatten()
-        
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
-        
-        for i, stat in enumerate(available_stats):
-            try:
-                test_stat = df[stat['cols'][1]] - df[stat['cols'][0]]
-                
-                ax = axes[i]
-                n, bins, patches = ax.hist(test_stat, bins=100, alpha=0.7, 
-                                         edgecolor='black', linewidth=0.5, 
-                                         color=colors[i])
-                
-                ax.set_xlabel(stat['name'])
-                ax.set_ylabel('Counts')
-                ax.set_yscale('log')
-                ax.set_title(stat['title'])
-                ax.grid(True, alpha=0.3)
-                
-                mean_val = test_stat.mean()
-                std_val = test_stat.std()
-                median_val = test_stat.median()
-                
-                ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, 
-                          label=f'Mean: {mean_val:.2f}')
-                ax.axvline(median_val, color='orange', linestyle='-.', alpha=0.8, 
-                          label=f'Median: {median_val:.2f}')
-                
-                stats_text = f'μ = {mean_val:.2f}\nσ = {std_val:.2f}\nN = {len(test_stat):,}'
-                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
-                       verticalalignment='top', bbox=dict(boxstyle='round', 
-                       facecolor='wheat', alpha=0.8))
-                
-                ax.legend(loc='upper right')
-                
-            except Exception as e:
-                logger.warning(f"Error creating histogram for {stat['name']}: {e}")
-                continue
-        
-        # Hide unused subplots
-        for j in range(len(available_stats), len(axes)):
-            axes[j].set_visible(False)
-        
-        plt.tight_layout()
-        
-        if save_plot:
-            plot_path = Path(output_dir) / "test_statistics_histograms.png"
-            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            logger.info(f"Test statistics histograms saved to: {plot_path}")
-        
-        plt.show()
+    if removal_counts:
+        log_removal_counts(removal_counts, total_removed, len(df))
+
+    df_filtered = df[~mask].copy()
+    return df_filtered, zscores, removal_counts
 
 
-def create_zscore_plots(zscores, yield_cols, save_plot=False, output_dir="./"):
-    """
-    Create and display/save z-score histograms for all yield columns.
+def nll_filter(df, threshold):
+    """Filter based on nLL values at mu=1 exceeding threshold"""
+    nll_mu1_cols = [col for col in df.columns if 'nLL' in col and 'mu1' in col and '0' not in col]
     
-    Args:
-        zscores (pd.DataFrame): Z-scores for yield columns
-        yield_cols (list): List of yield column names
-        save_plot (bool): Whether to save the plot to file
-        output_dir (str): Directory to save the plot
-    """
-    logger.info(f"Creating z-score histograms for {len(yield_cols)} yield columns")
+    if not nll_mu1_cols:
+        logger.warning("No nLL mu=1 columns found for filtering")
+        return df, {}
+
+    removal_counts = {}
+    mask = pd.Series(False, index=df.index)
+
+    for col in nll_mu1_cols:
+        col_mask = df[col] > threshold
+        removal_counts[col] = col_mask.sum()
+        mask = mask | col_mask
+
+    total_removed = mask.sum()
+    percent_removed = 100 * total_removed / len(df)
+    logger.info(f"nLL filter [{threshold}] removal summary: removed {total_removed}/{len(df)} ({percent_removed:.2f}%)")
     
-    n_cols = len(yield_cols)
-    n_plot_cols = min(3, n_cols)  # Maximum 3 columns per row
-    n_plot_rows = (n_cols + n_plot_cols - 1) // n_plot_cols
+    if removal_counts:
+        log_removal_counts(removal_counts, total_removed, len(df))
+
+    df_filtered = df[~mask].copy()
+    return df_filtered, removal_counts
+
+
+def delta_filter(df, delta_dict, threshold):
+    """Filter based on delta values exceeding threshold"""
+    mask = pd.Series(False, index=df.index)
+    removal_counts = {}
+
+    for delta_col, delta_vals in delta_dict.items():
+        col_mask = delta_vals > threshold
+        removal_counts[delta_col] = col_mask.sum()
+        mask = mask | col_mask
+
+    total_removed = mask.sum()
+    percent_removed = 100 * total_removed / len(df)
+    logger.info(f"Delta filter [{threshold}] removal summary: removed {total_removed}/{len(df)} ({percent_removed:.2f}%)")
     
-    fig, axes = plt.subplots(n_plot_rows, n_plot_cols, 
-                             figsize=(5 * n_plot_cols, 4 * n_plot_rows))
-    fig.suptitle('Distribution of Z-Scores (Yield Columns)', 
-                 fontsize=14, fontweight='bold')
+    if removal_counts:
+        log_removal_counts(removal_counts, total_removed, len(df))
+
+    df_filtered = df[~mask].copy()
+    return df_filtered, removal_counts
+
+
+def log_removal_counts(removal_counts, total_removed, original_count):
+    """Log removal counts with ASCII histogram, aligned and sorted by descending count"""
+    # Sort by count descending
+    sorted_counts = sorted(removal_counts.items(), key=lambda x: x[1], reverse=True)
     
-    if n_cols == 1:
-        axes = [axes]
-    else:
-        axes = axes.flatten()
+    # Find max label length for alignment
+    max_label_len = max(len(label) for label, _ in sorted_counts)
     
-    colors = plt.cm.tab20(np.linspace(0, 1, n_cols))
+    # Calculate bar width based on max count
+    max_count = sorted_counts[0][1] if sorted_counts else 1
+    max_bar_width = 40
     
-    for i, col in enumerate(yield_cols):
-        try:
-            ax = axes[i]
-            z_vals = zscores[col]
-            
-            n, bins, patches = ax.hist(z_vals, bins=100, alpha=0.7, 
-                                      edgecolor='black', linewidth=0.5, 
-                                      color=colors[i])
-            
-            ax.set_xlabel('|Z-Score|')
-            ax.set_ylabel('Counts')
-            ax.set_yscale('log')
-            ax.set_title(f'{col}')
-            ax.grid(True, alpha=0.3)
-            
-            mean_val = z_vals.mean()
-            std_val = z_vals.std()
-            median_val = z_vals.median()
-            max_val = z_vals.max()
-            
-            ax.axvline(mean_val, color='red', linestyle='--', alpha=0.8, 
-                      label=f'Mean: {mean_val:.2f}')
-            ax.axvline(median_val, color='orange', linestyle='-.', alpha=0.8, 
-                      label=f'Median: {median_val:.2f}')
-            
-            stats_text = f'μ = {mean_val:.2f}\nσ = {std_val:.2f}\nMax = {max_val:.2f}\nN = {len(z_vals):,}'
-            ax.text(0.98, 0.97, stats_text, transform=ax.transAxes, 
-                   verticalalignment='top', horizontalalignment='right',
-                   bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
-            
-            ax.legend(loc='upper left')
-            
-        except Exception as e:
-            logger.warning(f"Error creating z-score histogram for {col}: {e}")
-            continue
-    
-    # Hide unused subplots
-    for j in range(len(yield_cols), len(axes)):
-        axes[j].set_visible(False)
-    
+    for label, count in sorted_counts:
+        if count > 0:
+            bar_width = int(max_bar_width * count / max_count)
+            bar = '█' * bar_width
+            percent = 100 * count / original_count
+            logger.info(f"  {label:<{max_label_len}} | {bar:<{max_bar_width}} | {count:7d} ({percent:6.2f}%)")
+
+
+def plot_deltas(delta_dict_before, delta_dict_after, save_plot=False, output_dir='./'):
+    """Plot delta distributions with before/after filtering overlaid"""
+    delta_pairs = list(delta_dict_before.keys())
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+    axes = axes.flatten()
+    colors_before = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    colors_after = ['#0055aa', '#dd6600', '#208000', '#aa0000']
+
+    for i, delta_col in enumerate(delta_pairs):
+        ax = axes[i]
+        vals_before = delta_dict_before[delta_col]
+        vals_after = delta_dict_after[delta_col]
+
+        # Plot before filtering
+        ax.hist(vals_before, bins=100, alpha=0.5, edgecolor='black', linewidth=0.5,
+                color=colors_before[i], label=f'Before (n={len(vals_before)})')
+
+        # Plot after filtering
+        ax.hist(vals_after, bins=100, alpha=0.5, edgecolor='black', linewidth=0.5,
+                color=colors_after[i], label=f'After (n={len(vals_after)})')
+
+        # Statistics
+        mean_before = vals_before.mean()
+        mean_after = vals_after.mean()
+
+        ax.axvline(mean_before, color=colors_before[i], linestyle='--', linewidth=2, label=f'Mean before: {mean_before:.2f}')
+        ax.axvline(mean_after, color=colors_after[i], linestyle='--', linewidth=2, label=f'Mean after: {mean_after:.2f}')
+
+        ax.set_title(delta_col, fontsize=12, fontweight='bold')
+        ax.set_xlabel('Delta nLL')
+        ax.set_ylabel('Counts')
+        ax.set_yscale('log')
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=9)
+
     plt.tight_layout()
-    
     if save_plot:
-        plot_path = Path(output_dir) / "zscore_histograms.png"
-        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-        logger.info(f"Z-score histograms saved to: {plot_path}")
-    
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        plot_file = output_path / 'delta_histograms.png'
+        plt.savefig(plot_file, dpi=300, bbox_inches='tight')
+        logger.info(f"Saved delta histograms to {plot_file}")
     plt.show()
 
 
-def save_cleaned_data(df, output_file):
-    """
-    Save the cleaned dataframe to a CSV file.
-    
-    Args:
-        df (pd.DataFrame): Cleaned dataframe to save
-        output_file (str): Path to the output CSV file
-    """
-    if len(output_file) > 4 and output_file[-4:] != '.csv':
-        output_file = output_file + '.csv'
-    logger.info(f"Saving cleaned data to: {output_file}")
-    
-    try:
-        output_path = Path(output_file)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        df.to_csv(output_file, index=False)
-        logger.info(f"Cleaned data saved successfully ({len(df)} rows)")
-    except Exception as e:
-        logger.error(f"Error saving data: {e}")
-        sys.exit(1)
-
-
-def update_json_metadata(csv_file, output_file, df_cleaned):
-    """
-    Update JSON metadata file with cleaning information.
-    
-    Args:
-        csv_file (str): Original CSV file path
-        output_file (str): Output CSV file path
-        df_cleaned (pd.DataFrame): Cleaned dataframe
-    """
-    src = csv_file.replace('.csv', '.json')
-    output_path = Path(output_file)
-    
-    if output_path.suffix == '.csv':
-        dst = str(output_path.with_suffix('.json'))
-    else:
-        dst = str(output_path) + '.json'
-    
-    logger.info(f"Updating metadata in: {dst}")
-    
-    try:
-        if Path(src).exists():
-            with open(src, 'r') as f:
-                metadata = json.load(f)
-            
-            metadata['total_points'] = len(df_cleaned)
-            metadata['modified'] = True
-            metadata['modification_time'] = datetime.now().isoformat()
-            
-            with open(dst, 'w') as f:
-                json.dump(metadata, f, indent=2)
-            
-            logger.debug(f"Metadata updated: total_points = {len(df_cleaned)}")
-        else:
-            logger.debug(f"JSON file not found at {src}, skipping metadata update")
-    except Exception as e:
-        logger.warning(f"Could not process JSON file: {e}")
-
-
 def parse_arguments():
-    """
-    Parse command line arguments.
-    
-    Returns:
-        argparse.Namespace: Parsed arguments
-    """
-    parser = argparse.ArgumentParser(
-        description="Process CSV data by cleaning outliers based on range and z-score thresholds, and generating visualizations",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    python correct_csv.py data.csv
-    python correct_csv.py data.csv -o cleaned_data.csv
-    python correct_csv.py data.csv --save-plot
-    python correct_csv.py data.csv --up-threshold 50000 --low-threshold 0.001
-    python correct_csv.py data.csv --zscore-threshold 3 --save-plot
-    python correct_csv.py data.csv --dry-run --zscore-threshold 3
-        """
-    )
-    
-    parser.add_argument(
-        'input',
-        help='Path to input CSV file'
-    )
-    
-    parser.add_argument(
-        '-o', '--output',
-        help='Path to output CSV file (default: output.csv in script directory)'
-    )
-    
-    parser.add_argument(
-        '--no-plot',
-        action='store_true',
-        help='Do not display plots'
-    )
-    
-    parser.add_argument(
-        '--save-plot',
-        action='store_true',
-        help='Save plots to files'
-    )
-    
-    parser.add_argument(
-        '--no-save',
-        action='store_true',
-        help='Do not save cleaned data to output file'
-    )
-    
-    parser.add_argument(
-        '--up-threshold',
-        type=float,
-        default=1e5,
-        help='Upper range threshold for outlier removal (default: 100000)'
-    )
-    
-    parser.add_argument(
-        '--low-threshold',
-        type=float,
-        default=1e-5,
-        help='Lower range threshold for outlier removal (default: 0.00001)'
-    )
-    
-    parser.add_argument(
-        '--zscore-threshold',
-        type=float,
-        default=None,
-        help='Z-score threshold (in standard deviations) for outlier removal. If not specified, no z-score filtering is applied'
-    )
-    
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Preview what would be removed without actually removing or plotting'
-    )
-    
+    parser = argparse.ArgumentParser(description='CSV filtering and analysis tool')
+    parser.add_argument('input', help='Input CSV file')
+    parser.add_argument('-o', '--output', help='Output CSV file', required=True)
+    parser.add_argument('--z', type=float, default=None, help='Z-score threshold (e.g., 3.0)')
+    parser.add_argument('--nll', type=float, default=None, help='nLL threshold for mu=1')
+    parser.add_argument('--delta', type=float, default=None, help='Delta threshold (e.g., 150)')
+    parser.add_argument('--dry-run', action='store_true', help='Dry run mode (no file written)')
+    parser.add_argument('--save-plot', action='store_true', help='Save plots to file')
+    parser.add_argument('--no-plot', action='store_true', help='Do not display plots')
     return parser.parse_args()
 
 
 def main():
-    """
-    Main function to orchestrate the data processing workflow.
-    """
     args = parse_arguments()
     
-    # Determine output file path
-    if args.output:
-        output_file = args.output
-    else:
-        script_dir = Path(__file__).parent
-        output_file = script_dir / "output.csv"
+    # Check if any filtering is requested
+    if args.z is None and args.nll is None and args.delta is None:
+        logger.warning("No filtering thresholds provided (--z, --nll, --delta). Data will not be filtered.")
     
-    logger.info("=" * 70)
-    logger.info("CSV Data Processing Script")
-    logger.info("=" * 70)
+    # Load data
+    df = load_csv(args.input)
+    original_count = len(df)
+    yield_cols = identify_yield_cols(df)
     
-    # Load and inspect data
-    df = load_and_inspect_data(args.input)
-    initial_rows = df.shape[0]
+    logger.info(f"Identified {len(yield_cols)} yield columns")
     
-    # Identify yield and nLL columns
-    yield_cols = identify_yield_columns(df)
-    if not yield_cols:
-        logger.error("No yield columns found in the dataset")
-        sys.exit(1)
+    # Compute deltas on original data (for plotting)
+    delta_dict_original = compute_deltas(df)
     
-    nll_cols = identify_nll_columns(df)
-    if not nll_cols:
-        logger.warning("No nLL/nLLA columns found in the dataset")
+    # Apply filters in sequence: Z-score -> nLL -> Delta
     
-    logger.info(f"Initial dataset: {initial_rows} rows")
+    # Z-score filter
+    if args.z is not None:
+        logger.info(f"Applying z-score filter (threshold={args.z})")
+        df, zscores, removal_counts_z = zscore_filter(df, yield_cols, args.z)
+        logger.info(f"Rows remaining: {len(df)}/{original_count}")
     
-    # Validate thresholds
-    validate_thresholds(args.low_threshold, args.up_threshold, args.zscore_threshold)
+    # nLL filter (only for mu=1)
+    if args.nll is not None:
+        logger.info(f"Applying nLL filter for mu=1 (threshold={args.nll})")
+        df, removal_counts_nll = nll_filter(df, args.nll)
+        logger.info(f"Rows remaining: {len(df)}/{original_count}")
     
-    # Calculate z-scores on original data BEFORE any filtering
-    # This ensures z-score histograms show the true distribution
-    logger.debug("Calculating z-scores on original dataset for visualization")
-    zscores_original = pd.DataFrame(index=df.index)
-    for col in yield_cols:
-        mean_val = df[col].mean()
-        std_val = df[col].std()
-        zscores_original[col] = np.abs((df[col] - mean_val) / std_val)
+    # Compute deltas after all non-delta filters
+    delta_dict_after_all = compute_deltas(df)
     
-    # Clean outliers based on range (nLL/nLLA columns only)
-    df_cleaned, removal_counts_range = clean_outliers_range(df, nll_cols, args.low_threshold, 
-                                                             args.up_threshold, args.dry_run)
+    # Delta filter
+    if args.delta is not None:
+        logger.info(f"Applying delta filter (threshold={args.delta})")
+        df, removal_counts_delta = delta_filter(df, delta_dict_after_all, args.delta)
+        logger.info(f"Rows remaining: {len(df)}/{original_count}")
+        # Recompute deltas for final plot
+        delta_dict_after_all = compute_deltas(df)
     
-    # Clean outliers based on z-score if specified
-    zscores = None
-    removal_counts_zscore = None
-    if args.zscore_threshold is not None:
-        # Recalculate z-scores on the already range-filtered data for removal purposes
-        df_cleaned, zscores_filtered, removal_counts_zscore = clean_outliers_zscore(df_cleaned, yield_cols, 
-                                                                                      args.zscore_threshold, args.dry_run)
-        # But use the original z-scores for plotting (to show true distribution)
-        zscores = zscores_original.loc[df_cleaned.index]
-    else:
-        # Use original z-scores for plotting
-        zscores = zscores_original.loc[df_cleaned.index]
-    
-    # Print total removal summary
-    total_removed = initial_rows - df_cleaned.shape[0]
-    logger.info("")
-    logger.info("=" * 70)
-    logger.info(f"TOTAL ROWS REMOVED: {total_removed} out of {initial_rows} ({100*total_removed/initial_rows:.2f}%)")
-    logger.info(f"REMAINING ROWS: {df_cleaned.shape[0]}")
-    logger.info("=" * 70)
-    logger.info("")
-    
-    # If dry-run mode, exit here
-    if args.dry_run:
-        logger.info("DRY-RUN MODE: No files were modified")
-        logger.info("=" * 70)
-        return
-    
-    # Create plots
+    # Plot deltas (before/after all filtering) - always make the plot unless --no-plot
     if not args.no_plot:
-        output_dir = Path(output_file).parent
-        
-        # Plot nLL/nLLA statistics
-        create_histogram_plots(df_cleaned, yield_cols, args.save_plot, output_dir)
-        
-        # Plot z-scores
-        if zscores is not None:
-            create_zscore_plots(zscores, yield_cols, args.save_plot, output_dir)
+        output_dir = str(Path(args.output).parent) if Path(args.output).parent != Path('.') else './'
+        plot_deltas(delta_dict_original, delta_dict_after_all, 
+                   save_plot=args.save_plot, output_dir=output_dir)
     
-    # Save cleaned data
-    if not args.no_save:
-        save_cleaned_data(df_cleaned, output_file)
-        update_json_metadata(args.input, output_file, df_cleaned)
+    # Save CSV if not dry-run
+    if not args.dry_run:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(output_path, index=False)
+        logger.info(f"Saved cleaned CSV to {output_path}")
+        total_removed = original_count - len(df)
+        percent_removed = 100 * total_removed / original_count if original_count > 0 else 0
+        logger.info(f"Total summary: removed {total_removed}/{original_count} ({percent_removed:.2f}%)")
+        
+        # Copy and update JSON file with metadata
+        src_json = Path(args.input).with_suffix('.json')
+        
+        # Handle output file with or without extension
+        if output_path.suffix == '.csv':
+            dst_json = output_path.with_suffix('.json')
+        else:
+            # No extension provided, append .json
+            dst_json = Path(str(output_path) + '.json')
+        
+        try:
+            if src_json.exists():
+                # Read the original JSON file
+                with open(src_json, 'r') as f:
+                    metadata = json.load(f)
+                
+                # Update metadata fields
+                metadata['total_points'] = len(df)
+                metadata['modified'] = True
+                metadata['filtering_applied'] = {
+                    'zscore': args.z if args.z is not None else False,
+                    'nll': args.nll if args.nll is not None else False,
+                    'delta': args.delta if args.delta is not None else False,
+                    'original_points': original_count,
+                    'removed_points': total_removed,
+                    'removal_percentage': round(percent_removed, 2)
+                }
+                
+                # Write updated metadata to destination
+                dst_json.parent.mkdir(parents=True, exist_ok=True)
+                with open(dst_json, 'w') as f:
+                    json.dump(metadata, f, indent=2)
+                
+                logger.info(f"Metadata updated and saved to {dst_json} (total_points = {len(df)})")
+            else:
+                logger.warning(f"JSON file not found at {src_json}, skipping metadata update")
+        except Exception as e:
+            logger.warning(f"Could not process JSON file: {e}")
     else:
-        logger.info("Skipping data save (--no-save flag used)")
-    
-    logger.info("=" * 70)
-    logger.info("Processing completed successfully!")
-    logger.info("=" * 70)
+        logger.info(f"Dry-run mode: CSV not saved. Would have saved {len(df)} rows")
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

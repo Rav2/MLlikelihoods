@@ -220,35 +220,36 @@ class MyModelNN(keras.Model):
             self.output_layer = keras.layers.Concatenate(name='output_layer')
         else:
             self.output_layer = keras.layers.Dense(self.output_size, activation='linear', name='output_layer')
-
-        if loss == 'MSE':
-            self.loss_metric = mean_squared_error_loss
-        elif loss == 'M4E':
-            self.loss_metric = mixed_loss
-        elif loss == 'MAE':
-            self.loss_metric = mean_absolute_error_loss
-        elif loss == 'MAPE':
-            self.loss_metric = mean_absolute_percentage_error
-        elif loss == 'hybrid':
-            self.loss_metric = hybrid_loss
-        elif loss == 'huber':
-            self.loss_metric = keras.losses.Huber(delta=1.0)
-        elif loss == 'log_cosh':
-            self.loss_metric = log_cosh_loss
-        elif loss == 'triple':
-            self.loss_metric = triple_loss
-        elif loss == 'MSLE':
-            self.loss_metric = keras.losses.MeanSquaredLogarithmicError()
-        elif loss == 'hybrid-weighted':
-            self.loss_metric = weighted_hybrid_loss
-        elif loss == 'adaptive-weighted':
-            self.loss_metric = adaptive_weighted_loss
-        elif loss == 'log_cosh-weighted':
-            self.loss_metric = weighted_log_cosh_loss
-        elif loss == 'triple-weighted':
-            self.loss_metric = weighted_triple_loss
+        
+        # Set output weights based on weighted flag
+        weighted = loss.endswith('-weighted')
+        base_loss = loss.replace('-weighted', '')
+        output_weights = [1.0, 3.0, 1.0, 1.0] if weighted else None
+        
+        # Select loss
+        if base_loss == 'MSE':
+            self.loss_metric = MeanSquaredErrorLoss(output_weights=output_weights)
+        elif base_loss == 'M4E':
+            self.loss_metric = MixedLoss(output_weights=output_weights)
+        elif base_loss == 'MAE':
+            self.loss_metric = MeanAbsoluteErrorLoss(output_weights=output_weights)
+        elif base_loss == 'MAPE':
+            self.loss_metric = MeanAbsolutePercentageError(output_weights=output_weights)
+        elif base_loss == 'hybrid':
+            self.loss_metric = HybridLoss(output_weights=output_weights)
+        elif base_loss == 'log_cosh':
+            self.loss_metric = LogCoshLoss(output_weights=output_weights)
+        elif base_loss == 'triple':
+            self.loss_metric = TripleLoss(output_weights=output_weights)
+        elif base_loss == 'huber':
+            self.loss_metric = HuberLoss(delta=1.0, output_weights=output_weights)
+        elif base_loss == 'MSLE':
+            self.loss_metric = MeanSquaredLogarithmicError(output_weights=output_weights)
+        elif base_loss == 'adaptive-weighted':
+            self.loss_metric = AdaptiveWeightedLoss(output_weights=output_weights)
         else:
-            raise ValueError('[ERROR] Unknown loss!')
+            raise ValueError(f'[ERROR] Unknown loss: {loss}')
+
         self.loss_tracker = keras.metrics.Mean(name="loss")
         self.mae_metric = keras.metrics.MeanAbsoluteError(name="mae")
         self.mape_metric = keras.metrics.MeanAbsolutePercentageError(name="mape")

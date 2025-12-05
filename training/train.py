@@ -25,7 +25,7 @@ from optimize import optimize_params
 
 
 # Version
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # ==========================
 # DEFAULT PARAMETERS
@@ -48,7 +48,8 @@ default_parameters ={
                 'batch_size' : 512,
                 'early_stop' : True,
                 'optimize' : False,
-                'seed' : int(time.time())
+                'seed' : int(time.time()),
+                'output' : 'all', 
             }
 
 try:
@@ -123,19 +124,30 @@ def plot_weights(train_weights, val_weights, outpath):
         logging.error(f"Failed to plot weights: {e}")
 
 
-def plot_deltas(df, outpath, normalised):
-    """Plot histograms of the last 4 columns (deltas)."""
+def plot_deltas(df, outpath, normalised, delta_count=4):
+    """Plot histograms of the last delta columns."""
     try:
-        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
-        for ii in range(4):
-            row, col = ii // 2, ii % 2
-            data = df.iloc[:, -4 + ii]
-            axs[row, col].hist(data, 100)
-            axs[row, col].set_yscale('log')
-            axs[row, col].set_xlabel(df.columns[-4 + ii])
-            axs[row, col].set_ylabel('Counts')
-            axs[row, col].set_title(f'mu={np.round(data.mean(), 3)}, std={np.round(data.std(), 3)}')
-        plt.tight_layout()
+        if delta_count == 1:
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+            data = df.iloc[:, -1]
+            ax.hist(data, 100)
+            ax.set_yscale('log')
+            ax.set_xlabel(df.columns[-1])
+            ax.set_ylabel('Counts')
+            ax.set_title(f'mu={np.round(data.mean(), 3)}, std={np.round(data.std(), 3)}')
+            plt.tight_layout()
+        else:
+            fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+            for ii in range(4):
+                row, col = ii // 2, ii % 2
+                data = df.iloc[:, -4 + ii]
+                axs[row, col].hist(data, 100)
+                axs[row, col].set_yscale('log')
+                axs[row, col].set_xlabel(df.columns[-4 + ii])
+                axs[row, col].set_ylabel('Counts')
+                axs[row, col].set_title(f'mu={np.round(data.mean(), 3)}, std={np.round(data.std(), 3)}')
+            plt.tight_layout()
+        
         filename = 'deltas_norm_hist.pdf' if normalised else 'deltas_hist.pdf'
         plt.savefig(join(outpath, filename))
         plt.close()
@@ -187,36 +199,6 @@ def validate_dataframe(df, name="DataFrame"):
         raise ValueError(f"{name} is empty")
     
     logging.info(f"✓ {name} validation passed: {df.shape[0]} rows, {df.shape[1]} columns")
-
-
-def load_and_split_data(infile, outpath_aux):
-    """Load CSV data and split into train/val/test sets."""
-    try:
-        logging.info("Loading data...")
-        if basename(infile) == 'train.csv':
-            train = pd.read_csv(infile)
-            val = pd.read_csv(infile.replace('train', 'val'))
-            test = pd.read_csv(infile.replace('train', 'test'))
-        else:
-            df = pd.read_csv(infile)
-            validate_dataframe(df, "Input data")
-            
-            train, val, test = np.split(df.sample(frac=1), [int(.8 * len(df)), int(.9 * len(df))])
-            for dataset, name in zip([train, val, test], ['train', 'val', 'test']):
-                dataset.reset_index(drop=True, inplace=True)
-                dataset.to_csv(join(outpath_aux, f"{name}.csv"), index=False)
-        
-        # Validate all datasets
-        validate_dataframe(train, "Train set")
-        validate_dataframe(val, "Validation set")
-        validate_dataframe(test, "Test set")
-        
-        logging.info(f'train shape: {train.shape}, val shape: {val.shape}, test shape: {test.shape}')
-        
-        return train, val, test
-    except Exception as e:
-        logging.error(f"Failed to load and split data: {e}")
-        raise
 
 
 def compute_deltas(df):
@@ -297,13 +279,13 @@ def normalize_data(train, val, test):
         gc.collect()
 
 
-def run_optimization(hyper_params, outfolder, model_name, train_scaled, val_scaled,):
+def run_optimization(hyper_params, outfolder, model_name, train_scaled, val_scaled):
     """Load existing parameters or run optimization."""
     try:
         best_trial_path = join(dirname(__file__), '../auxiliary', f'{outfolder}-{model_name}', 'best_trial.yaml')
         if os.path.exists(best_trial_path):
             logging.warning(f'{best_trial_path} exists! It will be overwritten by optimization procedure!')
-        parameters = optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=100, n_jobs=5)
+        parameters = optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=100, n_jobs=5, output=hyper_params['output'])
         return parameters
     except Exception as e:
         logging.error(f"Failed to optimize parameters: {e}")
@@ -336,7 +318,7 @@ def create_cosine_scheduler(initial_lr, peak_lr, final_lr, warmup_epochs, total_
     )
 
 
-def build_and_compile_model(parameters, columns, batch_size, train_size):
+def build_and_compile_model(parameters, columns, batch_size, train_size, delta_count):
     """Build and compile the neural network model."""
     try:
         # Calculate steps per epoch
@@ -352,15 +334,18 @@ def build_and_compile_model(parameters, columns, batch_size, train_size):
             steps_per_epoch=steps_per_epoch
         )
         
-        # Create model
+        # Create model with correct input size based on delta_count
+        input_size = len(columns) - delta_count
+        output_size = delta_count
+        
         model = MyModelNN(
-            input_shape=(len(columns) - 4,),
+            input_shape=(input_size,),
             neurons=parameters['neurons'],
             blocks=parameters['blocks'],
             l2=parameters['l2'],
             activation=parameters['activation'],
             loss=parameters['loss'],
-            output_size=4,
+            output_size=output_size,
             dropout_rate = parameters['dropout_rate'],
             use_residual = parameters['use_residual'],
             separate_heads=parameters['separate_heads'],
@@ -377,14 +362,18 @@ def build_and_compile_model(parameters, columns, batch_size, train_size):
             else:
                 optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
         elif optimizer_name == 'AdamW':
-                optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule)
+            optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule)
         elif optimizer_name == 'Lion':
-                optimizer = tf.keras.optimizers.Lion(learning_rate=lr_schedule)
+            optimizer = tf.keras.optimizers.Lion(learning_rate=lr_schedule)
+        elif optimizer_name == 'SGD':
+            optimizer = tf.keras.optimizers.SGD(learning_rate=lr_schedule)
         else:
             raise NotImplementedError(f'Unsupported optimizer: {optimizer_name}')
         # compile model
         model.compile(optimizer=optimizer, weighted_metrics=[])
         logging.info(f"✓ Model compiled successfully")
+        logging.info(f"  Input size: {input_size}")
+        logging.info(f"  Output size: {output_size}")
         logging.info(f"  Optimizer: {optimizer.__class__.__name__}")
         logging.info(f"  Loss: {parameters['loss']}")
         logging.info(f"  Steps per epoch: {steps_per_epoch}")
@@ -395,7 +384,7 @@ def build_and_compile_model(parameters, columns, batch_size, train_size):
         raise
 
 
-def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_stopping=True):
+def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_stopping=True, delta_count=4):
     """Train the model with optional early stopping."""
     try:
         callbacks = [LRLogger()]
@@ -417,11 +406,11 @@ def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_s
         logging.info(f"  Validation samples: {len(val_scaled)}\n")
         
         history = model.fit(
-            x=train_scaled.iloc[:, :-4],
-            y=train_scaled.iloc[:, -4:],
+            x=train_scaled.iloc[:, :-delta_count],
+            y=train_scaled.iloc[:, -delta_count:],
             batch_size=batch_size,
             epochs=epochs,
-            validation_data=(val_scaled.iloc[:, :-4], val_scaled.iloc[:, -4:]),
+            validation_data=(val_scaled.iloc[:, :-delta_count], val_scaled.iloc[:, -delta_count:]),
             use_multiprocessing=False,
             callbacks=callbacks,
             verbose=1
@@ -489,6 +478,7 @@ def save_onnx_model(model, outpath_model, model_name, mean_arr, std_arr, shift,
                 custom_metadata = json.load(fmeta)
             add_metadata_to_onnx(onnx_model, custom_metadata)
             bkg_yields = custom_metadata.get('bkg_yields')
+            logging.info(f"Bkg yields loaded: {len(bkg_yields)} values")
             shutil.copyfile(metafile, join(outpath_aux, 'train.json'))
         except Exception as e:
             logging.warning(f'Could not load custom metadata: {str(e)}')
@@ -508,7 +498,7 @@ def save_onnx_model(model, outpath_model, model_name, mean_arr, std_arr, shift,
         gc.collect()
 
 
-def test_onnx_model(onnx_path, mean_arr, std_arr, columns):
+def test_onnx_model(onnx_path, mean_arr, std_arr, columns, delta_count):
     """Test loading and inference with the saved ONNX model."""
     try:
         logging.info("\n" + "="*60)
@@ -519,8 +509,9 @@ def test_onnx_model(onnx_path, mean_arr, std_arr, columns):
         onnx_model_loaded = onnx.load(onnx_path)
         sess = rt.InferenceSession(onnx_model_loaded.SerializeToString())
         
-        # Create dummy input
-        dummy_input = np.random.normal(loc=0, scale=1, size=(5, len(columns) - 4)).astype(np.float32)
+        # Create dummy input with correct size
+        input_size = len(columns) - delta_count
+        dummy_input = np.random.normal(loc=0, scale=1, size=(5, input_size)).astype(np.float32)
         
         # Run inference
         input_name = sess.get_inputs()[0].name
@@ -544,39 +535,49 @@ def test_onnx_model(onnx_path, mean_arr, std_arr, columns):
         gc.collect()
 
 
-def make_predictions(model, mean_arr, std_arr, columns, shift, bkg_yields, metadata_dict):
+def make_predictions(model, mean_arr, std_arr, columns, shift, bkg_yields, metadata_dict, output_choice='all'):
     """Make dummy predictions and predictions on background yields."""
     try:
+        # Determine delta_count from output_choice
+        delta_count = 1 if output_choice != 'all' else 4
+        
+        # Number of input features (columns minus delta outputs)
+        n_input_features = len(columns) - delta_count
+        
         logging.info('\n' + '='*60)
         logging.info('Model Predictions')
         logging.info('='*60)
         
         # Dummy prediction
-        dummy_input = np.random.normal(loc=0, scale=1, size=(5, len(columns) - 4))
+        dummy_input = np.random.normal(loc=0, scale=1, size=(5, n_input_features))
         logging.info('Dummy prediction:')
         predictions = model.predict(dummy_input, verbose=0)
         logging.info(predictions)
         
         # Background yields prediction
+        logging.info(f"mean_arr length: {len(mean_arr)}, delta_count: {delta_count}")
         if bkg_yields is not None:
             logging.info('\nBKG yields:')
             removed_channels = metadata_dict.get('remove_channels', [])
             yields = [y for c, y in bkg_yields if c.split('-')[0] not in removed_channels]
             logging.info(yields)
             
-            yields_normalized = (np.array(yields) - mean_arr[:-4]) / std_arr[:-4]
+            yields_array = np.array(yields)
+            yields_mean = mean_arr[:-delta_count].copy()
+            yields_std = std_arr[:-delta_count].copy()
+            
+            logging.info(f"Yields shape={yields_array.shape}, mean shape={yields_mean.shape}, std shape={yields_std.shape}")
+            
+            yields_normalized = (yields_array - yields_mean) / yields_std
             prediction = model.predict(np.array([yields_normalized]), verbose=0)[0]
-            prediction_denorm = prediction * std_arr[-4:] + mean_arr[-4:] + shift
+            prediction_denorm = prediction * std_arr[-delta_count:] + mean_arr[-delta_count:] + shift[:delta_count]
             
             logging.info('NLL prediction (mu=1) on bkg yields (S=0):')
             logging.info(prediction_denorm)
-            logging.info(f'NLL (mu=0) values: {shift}')
-        
-        logging.info('='*60 + '\n')
+            logging.info(f'NLL (mu=0) values: {shift[:delta_count]}')    
     except Exception as e:
         logging.error(f"Failed to make predictions: {e}")
         raise
-
 
 def plot_training_history(history, outpath_aux):
     """Plot and save training history."""
@@ -612,6 +613,93 @@ def plot_training_history(history, outpath_aux):
         gc.collect()
 
 
+
+
+def load_and_split_data(infile, outpath_aux):
+    """Load CSV data and split into train/val/test sets."""
+    try:
+        logging.info("Loading data...")
+        if basename(infile) == 'train.csv':
+            train = pd.read_csv(infile)
+            val = pd.read_csv(infile.replace('train', 'val'))
+            test = pd.read_csv(infile.replace('train', 'test'))
+        else:
+            df = pd.read_csv(infile)
+            validate_dataframe(df, "Input data")
+            
+            logging.info(f"Splitting {infile} into train/val/test (80/10/10)...")
+            train, val, test = np.split(df.sample(frac=1), [int(.8 * len(df)), int(.9 * len(df))])
+            for dataset, name in zip([train, val, test], ['train', 'val', 'test']):
+                dataset.reset_index(drop=True, inplace=True)
+                dataset.to_csv(join(outpath_aux, f"{name}.csv"), index=False)
+            logging.info(f"Split datasets saved to {outpath_aux}")
+        
+        # Validate all datasets
+        validate_dataframe(train, "Train set")
+        validate_dataframe(val, "Validation set")
+        validate_dataframe(test, "Test set")
+        
+        logging.info(f'Data loaded successfully: train shape: {train.shape}, val shape: {val.shape}, test shape: {test.shape}')
+        
+        return train, val, test
+    except Exception as e:
+        logging.error(f"Failed to load and split data: {e}")
+        raise
+
+
+def load_separate_datasets(train_path, val_path, test_path):
+    """Load separately provided train/val/test datasets with validation."""
+    try:
+        logging.info("="*60)
+        logging.info("Loading separately provided train/val/test datasets...")
+        logging.info("="*60)
+        
+        # Check if all files exist
+        for path, name in [(train_path, "train"), (val_path, "validation"), (test_path, "test")]:
+            if not os.path.isfile(path):
+                raise FileNotFoundError(f"Cannot find {name} dataset at: {path}")
+            logging.info(f"✓ Found {name} dataset: {path}")
+        
+        # Load datasets
+        logging.info("Reading train dataset...")
+        train = pd.read_csv(train_path)
+        validate_dataframe(train, "Train set")
+        logging.info(f"  Loaded: {train.shape[0]} rows, {train.shape[1]} columns")
+        
+        logging.info("Reading validation dataset...")
+        val = pd.read_csv(val_path)
+        validate_dataframe(val, "Validation set")
+        logging.info(f"  Loaded: {val.shape[0]} rows, {val.shape[1]} columns")
+        
+        logging.info("Reading test dataset...")
+        test = pd.read_csv(test_path)
+        validate_dataframe(test, "Test set")
+        logging.info(f"  Loaded: {test.shape[0]} rows, {test.shape[1]} columns")
+        
+        # Validate column compatibility
+        logging.info("Validating column compatibility across datasets...")
+        if not train.columns.equals(val.columns):
+            raise ValueError(f"Train and Validation datasets have mismatched columns!\n"
+                           f"Train columns: {list(train.columns)}\n"
+                           f"Val columns: {list(val.columns)}")
+        logging.info("  ✓ Train and Validation columns match")
+        
+        if not train.columns.equals(test.columns):
+            raise ValueError(f"Train and Test datasets have mismatched columns!\n"
+                           f"Train columns: {list(train.columns)}\n"
+                           f"Test columns: {list(test.columns)}")
+        logging.info("  ✓ Train and Test columns match")
+        
+        logging.info(f'✓ All datasets validated and loaded successfully')
+        logging.info(f'  Train shape: {train.shape}, Val shape: {val.shape}, Test shape: {test.shape}')
+        logging.info("="*60)
+        
+        return train, val, test
+        
+    except Exception as e:
+        logging.error(f"Failed to load separate datasets: {e}")
+        raise
+
 # ============================================================================
 # Main Training Pipeline
 # ============================================================================
@@ -640,26 +728,53 @@ def main(args):
         # Setup
         outfolder, outpath_model, outpath_aux = create_directories(args.input, args.model_name)
         
-        # Load data
-        train, val, test = load_and_split_data(args.input, outpath_aux)
-        
-        # Compute deltas
+        # Load data - choose mode based on arguments
+        if args.val_path and args.test_path:
+            logging.info("Using separate train/val/test data mode (user-provided paths)")
+            train, val, test = load_separate_datasets(args.input, args.val_path, args.test_path)
+        else:
+            logging.info("Using automatic data splitting mode (single input file)")
+            train, val, test = load_and_split_data(args.input, outpath_aux)
+
+        # Compute deltas with all 8 nLL columns first
         train, shift = compute_deltas(train)
         val, _ = compute_deltas(val)
         test, _ = compute_deltas(test)
-        
+
+        # Now filter to keep only relevant deltas
+        if parameters['output'] != 'all':
+            logging.info(f"Using only the {parameters['output']} output")
+            # Keep all yields (first -4 columns), filter only the 4 delta columns
+            n_yields = train.shape[1] - 4
+            indices = list(range(n_yields))  # Keep all yields
+            
+            if parameters['output'] == 'nLL_exp':
+                indices = indices + [n_yields]  # Keep only Delta_nLL_exp (1 column, not 2)
+            elif parameters['output'] == 'nLL_obs':
+                indices = indices + [n_yields + 1]  # Keep only Delta_nLL_obs
+            elif parameters['output'] == 'nLLA_exp':
+                indices = indices + [n_yields + 2]  # Keep only Delta_nLLA_exp
+            elif parameters['output'] == 'nLLA_obs':
+                indices = indices + [n_yields + 3]  # Keep only Delta_nLLA_obs
+            else:
+                raise ValueError(f'Unrecognised output parameter: {parameters["output"]}')
+            train = train.iloc[:, indices]
+            val = val.iloc[:, indices]
+            test = test.iloc[:, indices]
+            delta_count = 1
+        else:
+            delta_count = 4        
         logging.info(f'After delta computation:')
         logging.info(f'train shape: {train.shape}, val shape: {val.shape}, test shape: {test.shape}')
         
-        plot_deltas(train, outpath_aux, False)
+        plot_deltas(train, outpath_aux, False, delta_count)
         
         # Normalize data
         train_scaled, val_scaled, test_scaled, mean_arr, std_arr, columns = normalize_data(train, val, test)
-        plot_deltas(train_scaled, outpath_aux, True)
+        plot_deltas(train_scaled, outpath_aux, True, delta_count)
         
-
         if parameters['optimize']:
-            parameters = run_optimization(parameters, outfolder, args.model_name, train_scaled, val_scaled,)
+            parameters = run_optimization(parameters, outfolder, args.model_name, train_scaled, val_scaled)
         
         logging.info(f'NN parameters: {parameters}')
         
@@ -686,11 +801,11 @@ def main(args):
         gc.collect()
         
         # Build and compile model
-        model, optimizer = build_and_compile_model(parameters, columns, parameters['batch_size'], len(train_scaled))
+        model, optimizer = build_and_compile_model(parameters, columns, parameters['batch_size'], len(train_scaled), delta_count)
         
         # Train model
         history = train_model(model, train_scaled, val_scaled, parameters['batch_size'], parameters['epochs'],
-                            use_early_stopping=parameters['early_stop'])
+                            use_early_stopping=parameters['early_stop'], delta_count=delta_count)
         
         # Calculate training time
         end_time = time.process_time_ns() - start_time
@@ -714,10 +829,10 @@ def main(args):
         except:
             metadata_dict = {}
         
-        make_predictions(model, mean_arr, std_arr, columns, shift, bkg_yields, metadata_dict)
+        make_predictions(model, mean_arr, std_arr, columns, shift, bkg_yields, metadata_dict, parameters['output'])
         
         # Test ONNX model
-        test_onnx_model(onnx_path, mean_arr, std_arr, columns)
+        test_onnx_model(onnx_path, mean_arr, std_arr, columns, delta_count)
         
         # Plot training history
         plot_training_history(history, outpath_aux)
@@ -747,15 +862,14 @@ def parse_arguments():
     parser.add_argument(
         'input',
         type=str,
-        help='Path to input CSV file'
+        help='Path to input CSV file (for auto-split mode) or training dataset (for separate datasets mode)'
     )
 
     parser.add_argument(
         '--hyper-params',
         type=str,
         default='hyperparams.yaml',
-        help='Path to YAML file with hyper-parameters',
-       
+        help='Path to YAML file with hyper-parameters'
     )
     
     parser.add_argument(
@@ -766,6 +880,20 @@ def parse_arguments():
     )
     
     parser.add_argument(
+        '--val-path',
+        type=str,
+        default=None,
+        help='Path to validation dataset. If provided, --test-path must also be provided to use separate datasets mode'
+    )
+    
+    parser.add_argument(
+        '--test-path',
+        type=str,
+        default=None,
+        help='Path to test dataset. If provided, --val-path must also be provided to use separate datasets mode'
+    )
+    
+    parser.add_argument(
         '--version',
         action='version',
         version=f'%(prog)s {__version__}'
@@ -773,9 +901,16 @@ def parse_arguments():
     
     parser.set_defaults(early_stopping=True)
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    
+    # Validate that both val and test paths are provided together
+    if (args.val_path is None) != (args.test_path is None):
+        parser.error("Both --val-path and --test-path must be provided together for separate datasets mode. "
+                    "Omit both to use automatic splitting mode.")
+    
+    return args
+
 
 if __name__ == '__main__':
     args = parse_arguments()
     main(args)
-      
