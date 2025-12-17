@@ -134,7 +134,7 @@ def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_t
                                         val_scaled.iloc[:,:-4], 
                                         val_scaled.iloc[:, -4:],
                                         output), 
-                                        n_trials=5, n_jobs=n_jobs)
+                                        n_trials=100, n_jobs=n_jobs)
     print("[INFO] Number of finished trials: ", len(study.trials))
     print("[INFO] Best trial:")
     best_trial = study.best_trial

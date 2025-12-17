@@ -616,6 +616,115 @@ def create_dimreduction_plots(df, selected_columns, output_dir, n_components=2):
         logger.exception("PCA failed.")
         raise
 
+def create_yield_vs_nlldiff_2d_histograms(df, SR_cols, CR_cols, num_yield_cols, output_dir):
+    """Create 2D histograms of yield vs nLL difference for each channel.
+    
+    For each yield feature (SR and CR), plots:
+      - X-axis: 2(nLL_obs_mu1 - nLL_obs_mu0)
+      - Y-axis: yield value
+    
+    Splits into 5x5 grids across multiple PDF files.
+    
+    Args:
+        df: DataFrame with yields followed by 8 nLL columns
+        SR_cols: List of signal region column names
+        CR_cols: List of control region column names
+        num_yield_cols: Number of yield columns
+        output_dir: Output directory for plots
+    """
+    logger.info("Creating 2D yield vs nLL difference histograms...")
+    
+    try:
+        all_cols = SR_cols + CR_cols
+        if not all_cols:
+            logger.warning("No channels to plot.")
+            return
+        
+        # Extract nLL columns (observed case: columns num_yield_cols + 2 and num_yield_cols + 3)
+        if df.shape[1] < num_yield_cols + 4:
+            logger.warning(
+                f"DataFrame has {df.shape[1]} columns but expected at least {num_yield_cols + 4}. "
+                "Skipping 2D yield vs nLL histograms."
+            )
+            return
+        
+        idx_nll_obs_mu0 = num_yield_cols + 2
+        idx_nll_obs_mu1 = num_yield_cols + 3
+        
+        # Compute nLL difference for all rows
+        nll_obs_mu0 = pd.to_numeric(df.iloc[:, idx_nll_obs_mu0], errors="coerce")
+        nll_obs_mu1 = pd.to_numeric(df.iloc[:, idx_nll_obs_mu1], errors="coerce")
+        nll_diff = 2 * (nll_obs_mu1 - nll_obs_mu0)
+        
+        # Create plots in 5x5 grid, split across multiple files
+        n_channels = len(all_cols)
+        grid_size = 5
+        plots_per_file = grid_size * grid_size
+        n_files = int(np.ceil(n_channels / plots_per_file))
+        
+        logger.info(f"Creating {n_files} figure(s) with {grid_size}x{grid_size} grid ({plots_per_file} plots per file)")
+        
+        nbins = 50
+        
+        for file_idx in range(n_files):
+            fig, axs = plt.subplots(grid_size, grid_size, figsize=(16, 16))
+            axs = axs.flatten()
+            
+            start_idx = file_idx * plots_per_file
+            end_idx = min(start_idx + plots_per_file, n_channels)
+            
+            for plot_idx, col_idx in enumerate(range(start_idx, end_idx)):
+                col = all_cols[col_idx]
+                ax = axs[plot_idx]
+                
+                # Get yield values
+                yields = pd.to_numeric(df[col], errors="coerce")
+                
+                # Remove NaN values (align both arrays)
+                valid_mask = ~(yields.isna() | nll_diff.isna())
+                valid_yields = yields[valid_mask]
+                valid_nll_diff = nll_diff[valid_mask]
+                
+                if len(valid_yields) == 0:
+                    logger.warning(f"No valid data for channel {col}")
+                    ax.text(0.5, 0.5, f"{col}\n(no data)", ha='center', va='center')
+                    ax.set_title(col, fontsize=10)
+                    continue
+                
+                # Create 2D histogram
+                h = ax.hist2d(
+                    valid_nll_diff, valid_yields,
+                    bins=nbins,
+                    cmap='viridis',
+                    cmin=1  # Avoid showing empty bins at zero
+                )
+                
+                # Format axes
+                ax.set_xlabel(r"$2(\Delta$nLL$_{\text{obs,}\mu=1} - \Delta$nLL$_{\text{obs,}\mu=0})$", fontsize=8)
+                ax.set_ylabel("Yield", fontsize=8)
+                ax.set_title(col, fontsize=10, fontweight='bold')
+                ax.tick_params(labelsize=7)
+                
+                # Add colorbar
+                cbar = plt.colorbar(h[3], ax=ax)
+                cbar.set_label("Counts", fontsize=8)
+                cbar.ax.tick_params(labelsize=7)
+                
+                logger.info(f"Plotted {col} (file {file_idx + 1}/{n_files}, plot {plot_idx + 1}/{plots_per_file})")
+            
+            # Hide unused subplots
+            for plot_idx in range(end_idx - start_idx, plots_per_file):
+                axs[plot_idx].set_visible(False)
+            
+            plt.tight_layout()
+            out_path = os.path.join(output_dir, f"yield_vs_nlldiff_2d_histograms_{file_idx + 1}.pdf")
+            plt.savefig(out_path, dpi=300)
+            plt.close()
+            logger.info(f"Saved 2D histogram file {file_idx + 1}/{n_files}: {out_path}")
+    
+    except Exception:
+        logger.exception("Error creating 2D yield vs nLL difference histograms.")
+        raise
 
 # ------------------------------------------------------------
 # Main
@@ -726,6 +835,8 @@ def main():
         # PCA of SR/CR yields
         create_dimreduction_plots(df, selected_for_outliers, output_dir, n_components=2)
 
+        # 2D histograms: yield vs nLL difference
+        create_yield_vs_nlldiff_2d_histograms(df, SRs, CRs, num_yield_cols, output_dir)
     except Exception:
         logger.exception("Fatal plotting error.")
         sys.exit(1)
