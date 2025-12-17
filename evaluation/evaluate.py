@@ -33,7 +33,7 @@ log.addHandler(consoleHandler)
 def create_output_directory(outpath):
     """Create output directory if it does not exist."""
     if not exists(outpath):
-        os.mkdir(outpath)
+        os.makedirs(outpath)
         log.info(f"Created output directory at {outpath}")
 
 def preprocess_data(dataset):
@@ -69,7 +69,6 @@ def plot_truth_vs_prediction(ax, y_truth, y_pred, label_x, label_y, title):
             filtered_cond = cond & ~conditions[i-1]
         count = np.sum(filtered_cond)
         ax.scatter(y_truth[filtered_cond], y_pred[filtered_cond], marker='.', edgecolor='none', s=20, alpha=0.6, c=colors[i], label=labels[i]+f' ({count})', zorder=1)
-        # exit()
 
     ax.plot([np.min(y_truth), np.max(y_truth)], [np.min(y_truth), np.max(y_truth)], c='black', zorder=0)
     linthresh = 0.01
@@ -182,7 +181,6 @@ def plot_with_marginals(y_truth, y_pred, label_x, label_y, title, ax_main, bins=
     # Align histogram axes limits to main
     ax_histx.set_xscale('symlog', linthresh=thresh)
     ax_histx.set_yscale('log')
-    # ax_histx.set_xlim(ax_main.get_xlim())
     ax_histx.minorticks_on()
     ax_histx.hist([
         y_truth[conditions[0]],
@@ -191,13 +189,10 @@ def plot_with_marginals(y_truth, y_pred, label_x, label_y, title, ax_main, bins=
         y_truth[conditions[3] & ~conditions[2]],
         y_truth[conditions[4]]
     ], bins=bins_x, stacked=True, color=colors, alpha=0.5, range=xlim)
-    # ax_histx.axis('off')
     ax_histx.set_xlim(xlim)
-
 
     ax_histy.set_yscale('symlog', linthresh=thresh)
     ax_histy.set_xscale('log')
-    # ax_histy.set_ylim(ax_main.get_ylim())
     ax_histy.minorticks_on()
     ax_histy.hist([
         y_pred[conditions[0]],
@@ -209,25 +204,22 @@ def plot_with_marginals(y_truth, y_pred, label_x, label_y, title, ax_main, bins=
     ax_histy.tick_params(axis='y', which='both', labelleft=False)
     ax_histy.set_ylim(ylim)
 
-
     return ax_main, ax_histx, ax_histy
 
 
-
-
 def plot_error_histogram(ax, delta_pred, delta_truth, limit, title):
-    """Helper function to plot error histograms with log-scale and blue-red colormap."""
+    """Helper function to plot error histograms with log-scale and colormap."""
     h = ax.hist2d(delta_pred - delta_truth, delta_truth, bins=100, cmap='nipy_spectral_r', norm=LogNorm(), range=[[-1*limit, limit],[np.min(delta_truth), np.max(delta_truth)]])
-    ax.set_xlabel('∆_pred - ∆_truth')
-    ax.set_ylabel('∆_truth')
+    ax.set_xlabel('Δ_pred - Δ_truth')
+    ax.set_ylabel('Δ_truth')
     ax.set_xlim(-1*limit, limit)
     ax.set_title(title)
-    plt.colorbar(h[3], ax=ax)  # Add colorbar for the 2D histogram
+    plt.colorbar(h[3], ax=ax)
 
 
 def plot_comparison_histograms(ax, delta_pred, delta_truth, title):
     """
-    Helper function to plot a 1D histogram comparing ∆_truth and ∆_pred on a single axis.
+    Helper function to plot a 1D histogram comparing Δ_truth and Δ_pred on a single axis.
 
     Parameters:
         ax: matplotlib.axes.Axes
@@ -239,10 +231,10 @@ def plot_comparison_histograms(ax, delta_pred, delta_truth, title):
         title: str
             Title for the plot.
     """
-    ax.hist(delta_truth, bins=100, alpha=0.3, label='∆_truth', color='blue')
-    ax.hist(delta_pred, bins=100, alpha=0.3, label='∆_pred', color='red')
+    ax.hist(delta_truth, bins=100, alpha=0.3, label='Δ_truth', color='blue')
+    ax.hist(delta_pred, bins=100, alpha=0.3, label='Δ_pred', color='red')
     ax.set_title(title)
-    ax.set_xlabel('∆')
+    ax.set_xlabel('Δ')
     ax.set_yscale('log')
     ax.set_ylabel('Frequency')
     ax.legend()
@@ -278,81 +270,92 @@ def plot_marginal_histogram(ape, label, outpath, dataset_name):
     log.info(f"Saved marginal histogram to {save_path}")
 
 def main(model_path, dataset):
-    # Set up output directory
-    outdir = basename(dirname(dataset))
-    outpath = join('../validation', outdir)
-    create_output_directory(outpath)
-    dataset_name = basename(dataset).replace('.csv', '')
+    try:
+        # Set up output directory
+        outdir = basename(dirname(dataset))
+        outpath = join('../validation', outdir)
+        create_output_directory(outpath)
+        dataset_name = basename(dataset).replace('.csv', '')
+        
+        # Preprocess data
+        log.info(f"Loading dataset from {dataset}")
+        df = preprocess_data(dataset)
+        x_test = df.iloc[:, :-4]
+        columns = df.columns
+
+        # Load model and normalize data
+        log.info(f"Loading model from {model_path}")
+        sess, x_test_norm, mean_arr, std_arr, *mu0_nLLs = load_model_and_normalize(model_path, df)
+        y_test_norm = x_test_norm.iloc[:, -4:] * std_arr[-4:] + mean_arr[-4:]
+        x_test_norm = x_test_norm.iloc[:, :-4]
+
+        # Get predictions
+        log.info("Generating predictions")
+        y_pred_norm = sess.run(None, {'input_1': x_test_norm.to_numpy().astype(np.float32)})[0] * std_arr[-4:] + mean_arr[-4:]
+
+        # Check for corrupted points
+        for i, label in enumerate(columns[-4:]):
+            log.info(f'Checking for high values in {label}')
+            corr_cond = y_test_norm.iloc[:, i] > 1e6
+            if corr_cond.any():
+                log.warning(f"Found {corr_cond.sum()} abnormal points in {label}")
+
+        # Plot Delta truth vs prediction
+        log.info("Creating truth vs prediction plots with marginals")
+        fig, axs = plt.subplots(2, 2, figsize=(14, 14), gridspec_kw={'wspace':0.5, 'hspace':0.5})
+        plot_with_marginals(y_test_norm.iloc[:, 0], y_pred_norm[:, 0], 'Δ Exp Truth', 'Δ Exp Pred', 'Expected', ax_main=axs[0,0])
+        plot_with_marginals(y_test_norm.iloc[:, 1], y_pred_norm[:, 1], 'Δ Obs Truth', 'Δ Obs Pred', 'Observed', ax_main=axs[0,1])
+        plot_with_marginals(y_test_norm.iloc[:, 2], y_pred_norm[:, 2], 'Δ Exp Truth', 'Δ Exp Pred', 'Expected Asimov', ax_main=axs[1,0])
+        plot_with_marginals(y_test_norm.iloc[:, 3], y_pred_norm[:, 3], 'Δ Obs Truth', 'Δ Obs Pred', 'Observed Asimov', ax_main=axs[1,1])
+
+        plt.savefig(join(outpath, f'{dataset_name}-truth_vs_prediction.pdf'))
+        plt.close()
+        log.info(f"Saved truth vs prediction plot")
+
+        # Plot error vs delta_truth histograms
+        log.info("Creating error histograms")
+        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        exp_diff = np.concatenate([ y_test_norm.iloc[:, 0]- y_pred_norm[:, 0], y_test_norm.iloc[:, 2]- y_pred_norm[:, 2] ])
+        exp_lim = np.max( [np.abs(np.min(exp_diff)), np.abs(np.max(exp_diff))] ) 
+        obs_diff = np.concatenate([ y_test_norm.iloc[:, 1]- y_pred_norm[:, 1], y_test_norm.iloc[:, 3]- y_pred_norm[:, 3] ])
+        obs_lim = np.max( [np.abs(np.min(obs_diff)), np.abs(np.max(obs_diff))] )
+
+        plot_error_histogram(axs[0,0], y_pred_norm[:, 0], y_test_norm.iloc[:, 0], exp_lim, 'Expected')
+        plot_error_histogram(axs[0,1], y_pred_norm[:, 1], y_test_norm.iloc[:, 1], obs_lim, 'Observed')
+        plot_error_histogram(axs[1,0], y_pred_norm[:, 2], y_test_norm.iloc[:, 2], exp_lim, 'Expected Asimov')
+        plot_error_histogram(axs[1,1], y_pred_norm[:, 3], y_test_norm.iloc[:, 3], obs_lim, 'Observed Asimov')
+
+        plt.tight_layout()
+        plt.savefig(join(outpath, f'{dataset_name}-delta_errors.pdf'))
+        plt.close()
+
+        # Plot truth and predictions histograms
+        log.info("Creating comparison histograms")
+        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+        plot_comparison_histograms(axs[0,0], y_pred_norm[:, 0], y_test_norm.iloc[:, 0], 'Expected')
+        plot_comparison_histograms(axs[0,1], y_pred_norm[:, 1], y_test_norm.iloc[:, 1], 'Observed')
+        plot_comparison_histograms(axs[1,0], y_pred_norm[:, 2], y_test_norm.iloc[:, 2], 'Expected Asimov')
+        plot_comparison_histograms(axs[1,1], y_pred_norm[:, 3], y_test_norm.iloc[:, 3], 'Observed Asimov')
+
+        plt.tight_layout()
+        plt.savefig(join(outpath, f'{dataset_name}-delta_hist.pdf'))
+        plt.close()
+
+        # Plot APE and histograms for each nLL component
+        log.info("Creating APE plots")
+        labels = ['nLL_exp_mu1', 'nLL_obs_mu1', 'nLLA_exp_mu1', 'nLLA_obs_mu1']
+        for i, label in enumerate(labels):
+            l_truth = y_test_norm.iloc[:, i] + mu0_nLLs[i]
+            l_pred = y_pred_norm[:, i] + mu0_nLLs[i]
+            plot_jointplot_with_ape(l_truth, l_pred, label, outpath, dataset_name)
+            ape = 100 * np.abs((l_truth - l_pred) / l_truth)
+            plot_marginal_histogram(ape, label, outpath, dataset_name)
+
+        log.info("Processing completed. All plots saved.")
     
-    # Preprocess data
-    df = preprocess_data(dataset)
-    x_test = df.iloc[:, :-4]
-    columns = df.columns
-
-    # Load model and normalize data
-    sess, x_test_norm, mean_arr, std_arr, *mu0_nLLs = load_model_and_normalize(model_path, df)
-    y_test_norm = x_test_norm.iloc[:, -4:] * std_arr[-4:] + mean_arr[-4:]
-    x_test_norm = x_test_norm.iloc[:, :-4]
-
-    # Get predictions
-    y_pred_norm = sess.run(None, {'input_1': x_test_norm.to_numpy().astype(np.float32)})[0] * std_arr[-4:] + mean_arr[-4:]
-
-    # Check for corrupted points
-    for i, label in enumerate(columns[-4:]):
-        log.info(f'Checking for high values in {label}')
-        corr_cond = y_test_norm.iloc[:, i] > 1e6
-        if corr_cond.any():
-            log.warning(f"Found {corr_cond.sum()} abnormal points in {label}")
-
-    # Plot Delta truth vs prediction
-    fig, axs = plt.subplots(2, 2, figsize=(14, 14), gridspec_kw={'wspace':0.5, 'hspace':0.5})
-    plot_with_marginals(y_test_norm.iloc[:, 0], y_pred_norm[:, 0], 'Δ Exp Truth', 'Δ Exp Pred', 'Expected', ax_main=axs[0,0])
-    plot_with_marginals(y_test_norm.iloc[:, 1], y_pred_norm[:, 1], 'Δ Obs Truth', 'Δ Obs Pred', 'Observed', ax_main=axs[0,1])
-    plot_with_marginals(y_test_norm.iloc[:, 2], y_pred_norm[:, 2], 'Δ Exp Truth', 'Δ Exp Pred', 'Expected Asimov', ax_main=axs[1,0])
-    plot_with_marginals(y_test_norm.iloc[:, 3], y_pred_norm[:, 3], 'Δ Obs Truth', 'Δ Obs Pred', 'Observed Asimov', ax_main=axs[1,1])
-
-    # plt.tight_layout()
-    plt.savefig(join(outpath, f'{dataset_name}-truth_vs_prediction.pdf'))
-    plt.close()
-
-    # Plot error vs delta_truth histograms
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-    exp_diff = np.concatenate([ y_test_norm.iloc[:, 0]- y_pred_norm[:, 0], y_test_norm.iloc[:, 2]- y_pred_norm[:, 2] ])
-    exp_lim = np.max( [np.abs(np.min(exp_diff)), np.abs(np.max(exp_diff))] ) 
-    obs_diff = np.concatenate([ y_test_norm.iloc[:, 1]- y_pred_norm[:, 1], y_test_norm.iloc[:, 3]- y_pred_norm[:, 3] ])
-    obs_lim = np.max( [np.abs(np.min(obs_diff)), np.abs(np.max(obs_diff))] )
-
-    plot_error_histogram(axs[0,0], y_pred_norm[:, 0], y_test_norm.iloc[:, 0], exp_lim, 'Expected')
-    plot_error_histogram(axs[0,1], y_pred_norm[:, 1], y_test_norm.iloc[:, 1], obs_lim, 'Observed')
-    plot_error_histogram(axs[1,0], y_pred_norm[:, 2], y_test_norm.iloc[:, 2], exp_lim, 'Expected Asimov')
-    plot_error_histogram(axs[1,1], y_pred_norm[:, 3], y_test_norm.iloc[:, 3], obs_lim, 'Observed Asimov')
-
-    plt.tight_layout()
-    plt.savefig(join(outpath, f'{dataset_name}-delta_errors.pdf'))
-    plt.close()
-
-    # Plot truth and predictions histograms
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-    plot_comparison_histograms(axs[0,0], y_pred_norm[:, 0], y_test_norm.iloc[:, 0], 'Expected')
-    plot_comparison_histograms(axs[0,1], y_pred_norm[:, 1], y_test_norm.iloc[:, 1], 'Observed')
-    plot_comparison_histograms(axs[1,0], y_pred_norm[:, 2], y_test_norm.iloc[:, 2], 'Expected Asimov')
-    plot_comparison_histograms(axs[1,1], y_pred_norm[:, 3], y_test_norm.iloc[:, 3], 'Observed Asimov')
-
-    plt.tight_layout()
-    plt.savefig(join(outpath, f'{dataset_name}-delta_hist.pdf'))
-    plt.close()
-
-    # Plot APE and histograms for each nLL component
-   
-    labels = ['nLL_exp_mu1', 'nLL_obs_mu1', 'nLLA_exp_mu1', 'nLLA_obs_mu1']
-    for i, label in enumerate(labels):
-        l_truth = y_test_norm.iloc[:, i] + mu0_nLLs[i]
-        l_pred = y_pred_norm[:, i] + mu0_nLLs[i]
-        plot_jointplot_with_ape(l_truth, l_pred, label, outpath, dataset_name)
-        ape = 100 * np.abs((l_truth - l_pred) / l_truth)
-        plot_marginal_histogram(ape, label, outpath, dataset_name)
-
-    log.info("Processing completed. All plots saved.")
+    except Exception as e:
+        log.error(f"An error occurred: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == '__main__':
     if len(sys.argv) < 3:

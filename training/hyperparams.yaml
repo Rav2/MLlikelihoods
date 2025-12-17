@@ -2,9 +2,9 @@ author: 'Rafal Maselek'
 # base number of neurons in each layer
 neurons: 4096
 # how many blocks (block=dense+batch_norm+activation+dropout)
-blocks: 4
+blocks: 5
 # L2 regularisation
-l2: 0.0001
+l2: 0.00001
 # activateion: relu, relu6, tanh, elu, swish
 activation: 'elu'
 # use batch norm or not
@@ -13,9 +13,6 @@ batch_norm: True
 dropout_rate: 0.0
 # use residual connections to all blocks
 use_residual : False
-# equal -- all blocks have the same size, 
-# expand/contract -- start from 'neurons' and then grow/reduce size by 2 for each block
-width : 'equal'
 # loss: MSE, M4E, MAE, MAPE, hybrid, huber, log_cosh, triple, MSLE
 # see losses.py for definitions
 loss : 'hybrid'
@@ -28,14 +25,14 @@ head_batch_norm : True
 # size of the gradient clipping
 gradient_clipping : 1.0
 # epochs to train
-epochs: 1
+epochs: 10000
 # random seed, leave it commented out for random
 #seed: 0
-batch_size: 512
+batch_size: 1024
 # optimizer: Adam, AdamW
-optimizer: 'Lion'
+optimizer: 'Adam'
 early_stop: true
 optimize: false
-
+output: 'all'
 
 

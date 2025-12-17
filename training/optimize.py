@@ -7,22 +7,24 @@ from NNmodel import MyModelNN
 import numpy as np
 import gc
 from logger import *
+import yaml
 
-def objective(trial, X_train, y_train, X_val, y_val):
+
+def objective(trial, X_train, y_train, X_val, y_val, output):
     try:
         param = {
             'neurons' : trial.suggest_categorical('neurons', [32, 64, 128, 256, 512, 1024, 2048,]),
             'blocks' : trial.suggest_int('blocks', 3, 6),
             'l2' : trial.suggest_float('l2', 1e-7, 1e-1, log=True),   
             'activation' : trial.suggest_categorical('activation', ['relu', 'elu', 'tanh', 'relu6', 'swish']),
-            'width' : trial.suggest_categorical('width', ['equal', ]),
             'loss' : trial.suggest_categorical('loss', ['MSE']), # dummy 
             'batch_norm' : trial.suggest_categorical('batch_norm', [True, False]),
             'use_residual' : trial.suggest_categorical('use_residual', [True, False]),
-            'dropout_rate' : trial.suggest_float('dropout_rate', 0.0, 0.15)
+            'dropout_rate' : trial.suggest_float('dropout_rate', 0.0, 0.15),
+            'output' : output
         }
 
-        model = MyModelNN(input_shape = (len(X_train.columns),),
+        model = MyModelNN(      input_shape = (len(X_train.columns),),
                                 neurons = param['neurons'], 
                                 blocks = param['blocks'], 
                                 l2 = param['l2'],
@@ -30,8 +32,8 @@ def objective(trial, X_train, y_train, X_val, y_val):
                                 batch_norm = param['batch_norm'],
                                 dropout_rate = param['dropout_rate'],
                                 use_residual = param['use_residual'],
-                                width = param['width'],  
-                                )
+                                output_size=4 if param['output'] == 'all' else 1,
+                        )
         model.compile(optimizer=tf.keras.optimizers.legacy.Adam(learning_rate=1e-3, ))
         X_train_subset = X_train[::10].values.astype(np.float32)
         y_train_subset = y_train[::10].values.astype(np.float32)
@@ -53,7 +55,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
 
     except (tf.errors.ResourceExhaustedError, tf.errors.InternalError) as e:
         print(f"[WARNING] Trial {trial.number} failed with GPU error: {type(e).__name__}")
-        print(f"         Params: neurons={param['neurons']}, blocks={param['blocks']}, width={param['width']}")
+        print(f"         Params: neurons={param['neurons']}, blocks={param['blocks']}")
         
         # Aggressive cleanup
         try:
@@ -99,7 +101,7 @@ def objective(trial, X_train, y_train, X_val, y_val):
         # For unexpected errors, we might want to see them
         raise
 
-def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=2, n_jobs=1):
+def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_trials=2, n_jobs=1, output='all'):
 
     try:
         physical_devices = tf.config.list_physical_devices('GPU')
@@ -130,8 +132,9 @@ def optimize_params(hyper_params, train_scaled, val_scaled, best_trial_path, n_t
                                         train_scaled.iloc[:,:-4],
                                         train_scaled.iloc[:, -4:],
                                         val_scaled.iloc[:,:-4], 
-                                        val_scaled.iloc[:, -4:]), 
-                                        n_trials=n_trials, n_jobs=n_jobs)
+                                        val_scaled.iloc[:, -4:],
+                                        output), 
+                                        n_trials=100, n_jobs=n_jobs)
     print("[INFO] Number of finished trials: ", len(study.trials))
     print("[INFO] Best trial:")
     best_trial = study.best_trial

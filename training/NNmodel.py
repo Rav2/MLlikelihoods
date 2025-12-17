@@ -130,7 +130,7 @@ class MyModelNN(keras.Model):
     A flexible neural network model composed of stacked MyBlock layers with optional separate output heads.
     
     Supports various configurations including residual connections, batch normalization, different 
-    loss functions, and customizable network width patterns (equal, expand, contract).
+    loss functions, and customizable network architectures via neuron specifications.
     """
 
     def __init__(self,
@@ -144,7 +144,6 @@ class MyModelNN(keras.Model):
                  batch_norm=False,
                  dropout_rate=0.0,
                  use_residual=False,
-                 width='equal',
                  separate_heads=False,
                  head_size=256,
                  head_batch_norm=False,
@@ -155,8 +154,11 @@ class MyModelNN(keras.Model):
         
         Args:
             input_shape (tuple): Shape of input features (excluding batch dimension).
-            neurons (int): Number of neurons in the first block. Default: 256.
-            blocks (int): Number of stacked blocks. Default: 4.
+            neurons (int or list): Number of neurons per block. Can be:
+                - An integer: all blocks use this number of neurons. Default: 256.
+                - A list of integers: each block uses the corresponding neuron count.
+                  If provided, 'blocks' parameter is ignored with a warning.
+            blocks (int): Number of stacked blocks (ignored if neurons is a list). Default: 4.
             l2 (float): L2 regularization coefficient. Default: 1e-3.
             activation (str): Activation function name. Default: 'relu'.
             loss (str): Loss function ('MSE', 'MAE', 'MAPE', 'hybrid', 'huber', 'log_cosh', 'triple', 'MSLE', 'M4E'). Default: 'MSE'.
@@ -164,7 +166,6 @@ class MyModelNN(keras.Model):
             batch_norm (bool): Whether to apply batch normalization in blocks. Default: False.
             dropout_rate (float): Dropout rate in blocks. Default: 0.0.
             use_residual (bool): Whether to use residual connections in blocks. Default: False.
-            width (str): Network width pattern ('equal', 'expand', 'contract'). Default: 'equal'.
             separate_heads (bool): Whether to use separate output heads per output dimension. Default: False.
             head_size (int): Number of neurons in each separate head. Default: 256.
             head_batch_norm (bool): Whether to apply batch normalization in separate heads. Default: False.
@@ -172,11 +173,24 @@ class MyModelNN(keras.Model):
             **kwargs: Additional keyword arguments passed to parent Model class.
         
         Raises:
-            ValueError: If gradient_clipping is not positive or if width/loss options are unrecognized.
+            ValueError: If gradient_clipping is not positive or if loss option is unrecognized.
         """
         super().__init__(**kwargs)
+        
+        # Handle neurons specification
+        if isinstance(neurons, list):
+            neuron_list = neurons
+            actual_blocks = len(neuron_list)
+            if blocks != actual_blocks:
+                from logger import logging
+                logging.warning(f"neurons is specified as a list with {actual_blocks} elements. "
+                               f"Ignoring blocks={blocks} and using {actual_blocks} blocks instead.")
+        else:
+            neuron_list = [neurons] * blocks
+            actual_blocks = blocks
+        
         self.neurons = neurons
-        self.blocks = blocks
+        self.blocks = actual_blocks
         self.l2 = l2
         self.output_size = output_size
         self.separate_heads = separate_heads
@@ -189,16 +203,8 @@ class MyModelNN(keras.Model):
 
         self.input_layer = keras.layers.InputLayer(input_shape=input_shape, name='input_1')
         dense_layers = []
-        for ii in range(blocks):
-            if width == 'equal':
-                power = 0
-            elif width == 'contract':
-                power = -1*ii
-            elif width == 'expand':
-                power = ii 
-            else:
-                raise ValueError(f"Unrecognised width option: {width}. Available options: equal, expand, contract") 
-            dense_layers.append(MyBlock(max(neurons*int(2**power), 1),  
+        for ii in range(actual_blocks):
+            dense_layers.append(MyBlock(neuron_list[ii],  
                     l2, activation, batch_norm, dropout_rate, use_residual,
                     name=f"block_{ii}"))
 
@@ -214,27 +220,36 @@ class MyModelNN(keras.Model):
             self.output_layer = keras.layers.Concatenate(name='output_layer')
         else:
             self.output_layer = keras.layers.Dense(self.output_size, activation='linear', name='output_layer')
-
-        if loss == 'MSE':
-            self.loss_metric = mean_squared_error_loss
-        elif loss == 'M4E':
-            self.loss_metric = mixed_loss
-        elif loss == 'MAE':
-            self.loss_metric = mean_absolute_error_loss
-        elif loss == 'MAPE':
-            self.loss_metric = mean_absolute_percentage_error
-        elif loss == 'hybrid':
-            self.loss_metric = hybrid_loss
-        elif loss == 'huber':
-            self.loss_metric = keras.losses.Huber(delta=1.0)
-        elif loss == 'log_cosh':
-            self.loss_metric = log_cosh_loss
-        elif loss == 'triple':
-            self.loss_metric = triple_loss
-        elif loss == 'MSLE':
-            self.loss_metric = keras.losses.MeanSquaredLogarithmicError()
+        
+        # Set output weights based on weighted flag
+        weighted = loss.endswith('-weighted')
+        base_loss = loss.replace('-weighted', '')
+        output_weights = [1.0, 3.0, 1.0, 1.0] if weighted else None
+        
+        # Select loss
+        if base_loss == 'MSE':
+            self.loss_metric = MeanSquaredErrorLoss(output_weights=output_weights)
+        elif base_loss == 'M4E':
+            self.loss_metric = MixedLoss(output_weights=output_weights)
+        elif base_loss == 'MAE':
+            self.loss_metric = MeanAbsoluteErrorLoss(output_weights=output_weights)
+        elif base_loss == 'MAPE':
+            self.loss_metric = MeanAbsolutePercentageError(output_weights=output_weights)
+        elif base_loss == 'hybrid':
+            self.loss_metric = HybridLoss(output_weights=output_weights)
+        elif base_loss == 'log_cosh':
+            self.loss_metric = LogCoshLoss(output_weights=output_weights)
+        elif base_loss == 'triple':
+            self.loss_metric = TripleLoss(output_weights=output_weights)
+        elif base_loss == 'huber':
+            self.loss_metric = HuberLoss(delta=1.0, output_weights=output_weights)
+        elif base_loss == 'MSLE':
+            self.loss_metric = MeanSquaredLogarithmicError(output_weights=output_weights)
+        elif base_loss == 'adaptive-weighted':
+            self.loss_metric = AdaptiveWeightedLoss(output_weights=output_weights)
         else:
-            raise ValueError('[ERROR] Unknown loss!')
+            raise ValueError(f'[ERROR] Unknown loss: {loss}')
+
         self.loss_tracker = keras.metrics.Mean(name="loss")
         self.mae_metric = keras.metrics.MeanAbsoluteError(name="mae")
         self.mape_metric = keras.metrics.MeanAbsolutePercentageError(name="mape")
