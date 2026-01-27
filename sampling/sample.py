@@ -303,7 +303,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 bkg_yields = list(zip(bins_names, data_bkg[:len(bins_is_signal)]))
 
                 # Store channel_nbins before deleting model_bkg - needed for robust mapping
-                channel_nbins = dict(model_bkg.config.channel_nbins)
+                channel_nbins = OrderedDict(model_bkg.config.channel_nbins)
 
                 del data_bkg
                 del model_bkg
@@ -331,13 +331,13 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                         raise ValueError(mes)
                     
                     # Create lookup dictionaries mapping bin name -> value
-                    bkg_yield_dict = dict(zip(input_bins_ordered, file_data_bkg))
-                    bkg_unc_dict = dict(zip(input_bins_ordered, file_data_bkg_unc))
+                    bkg_yield_dict = OrderedDict(zip(input_bins_ordered, file_data_bkg))
+                    bkg_unc_dict = OrderedDict(zip(input_bins_ordered, file_data_bkg_unc))
                     
                     # Assign values in MODEL's bin ordering (bins_names)
                     bkg_yields = []
                     bkg_unc = []
-                    for bin_name in bins_names:
+                    for bin_name in input_bins_ordered:
                         if bin_name not in bkg_yield_dict:
                             mes = f'Bin {bin_name} from model not found in input file data'
                             logger.error(mes)
@@ -386,8 +386,19 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 ##############################
                 logger.info(f"Geting the observed number of events.")
                 workspace_obs, model_obs, data_obs = full_background_model.backend.model(expected=spey.ExpectationType.observed)
-                obs_yields = list(zip(bins_names, data_obs))
-                print_yield_table(bins_names, bins_is_signal, bkg_yields, bkg_unc, obs_yields, logger)
+                obs_yields = [] #list(zip(input_bins_ordered, data_obs))
+                obs_data_dict = {}
+                obs_bin_iter = 0
+                for channel_item in model_obs.config.channel_nbins.items():
+                    channel_name = channel_item[0]
+                    channel_nbins = channel_item[1]
+                    for nb in range(channel_nbins):
+                        bin_name = channel_name + f'-{nb}'
+                        obs_data_dict[bin_name] = data_obs[obs_bin_iter + nb]
+                    obs_bin_iter += channel_nbins
+                for bin_name in input_bins_ordered:
+                    obs_yields.append([bin_name, obs_data_dict[bin_name]])
+                print_yield_table(input_bins_ordered, bins_is_signal, bkg_yields, bkg_unc, obs_yields, logger)
                 
                 
                 #################################################################
