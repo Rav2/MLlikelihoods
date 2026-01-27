@@ -315,6 +315,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     
                     # Create bin names in YAML file's channel ordering
                     input_bins_ordered = []
+                    bins_is_signal_ordered = []
+
                     for ch_name in channels.keys():
                         n_bins = channel_nbins.get(ch_name)
                         if n_bins is None:
@@ -322,6 +324,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                             continue
                         for ii in range(n_bins):
                             input_bins_ordered.append(f'{ch_name}-{ii}')
+                            bins_is_signal_ordered.append(ch_name in SRs)
                     
                     # Validate lengths
                     if len(input_bins_ordered) != len(file_data_bkg) or len(input_bins_ordered) != len(file_data_bkg_unc):
@@ -337,14 +340,19 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     # Assign values in MODEL's bin ordering (bins_names)
                     bkg_yields = []
                     bkg_unc = []
-                    for bin_name in input_bins_ordered:
+                    for bin_name in bins_names:
                         if bin_name not in bkg_yield_dict:
                             mes = f'Bin {bin_name} from model not found in input file data'
                             logger.error(mes)
                             raise ValueError(mes)
                         bkg_yields.append((bin_name, bkg_yield_dict[bin_name]))
                         bkg_unc.append((bin_name, bkg_unc_dict[bin_name]))
-                    
+                    # There might be a difference between user defined order of data and model's
+                    bkg_yields_ordered = []
+                    bkg_unc_ordered = []
+                    for bin_name in input_bins_ordered:
+                        bkg_yields_ordered.append((bin_name, bkg_yield_dict[bin_name]))
+                        bkg_unc_ordered.append((bin_name, bkg_unc_dict[bin_name]))
                     logger.info(f"Successfully mapped {len(bkg_yields)} background yields and uncertainties")
                 else:
                     ########################################
@@ -386,7 +394,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 ##############################
                 logger.info(f"Geting the observed number of events.")
                 workspace_obs, model_obs, data_obs = full_background_model.backend.model(expected=spey.ExpectationType.observed)
-                obs_yields = [] #list(zip(input_bins_ordered, data_obs))
+                obs_yields = list(zip(bins_names, data_obs))
+                obs_yields_ordered = []
                 obs_data_dict = {}
                 obs_bin_iter = 0
                 for channel_item in model_obs.config.channel_nbins.items():
@@ -397,8 +406,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                         obs_data_dict[bin_name] = data_obs[obs_bin_iter + nb]
                     obs_bin_iter += channel_nbins
                 for bin_name in input_bins_ordered:
-                    obs_yields.append([bin_name, obs_data_dict[bin_name]])
-                print_yield_table(input_bins_ordered, bins_is_signal, bkg_yields, bkg_unc, obs_yields, logger)
+                    obs_yields_ordered.append([bin_name, obs_data_dict[bin_name]])
+                print_yield_table(input_bins_ordered, bins_is_signal_ordered, bkg_yields_ordered, bkg_unc_ordered, obs_yields_ordered, logger)
                 
                 
                 #################################################################
