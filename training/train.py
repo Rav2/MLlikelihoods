@@ -22,7 +22,7 @@ from tqdm import tqdm
 import yaml
 from NNmodel import MyModelNN
 from optimize import optimize_params
-
+from prune import *
 
 # Version
 __version__ = "1.2.0"
@@ -384,50 +384,50 @@ def build_and_compile_model(parameters, columns, batch_size, train_size, delta_c
         raise
 
 
-def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_stopping=True, delta_count=4):
-    """Train the model with optional early stopping."""
-    try:
-        callbacks = [LRLogger()]
+# def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_stopping=True, delta_count=4):
+#     """Train the model with optional early stopping."""
+#     try:
+#         callbacks = [LRLogger()]
         
-        if use_early_stopping:
-            early_stop = tf.keras.callbacks.EarlyStopping(
-                monitor='loss',
-                patience=500,
-                restore_best_weights=True,
-                verbose=1
-            )
-            callbacks.append(early_stop)
-            logging.info("✓ Early stopping enabled (patience=500, monitor=val_loss)")
+#         if use_early_stopping:
+#             early_stop = tf.keras.callbacks.EarlyStopping(
+#                 monitor='loss',
+#                 patience=500,
+#                 restore_best_weights=True,
+#                 verbose=1
+#             )
+#             callbacks.append(early_stop)
+#             logging.info("✓ Early stopping enabled (patience=500, monitor=val_loss)")
         
-        logging.info(f"\nStarting training...")
-        logging.info(f"  Epochs: {epochs}")
-        logging.info(f"  Batch size: {batch_size}")
-        logging.info(f"  Training samples: {len(train_scaled)}")
-        logging.info(f"  Validation samples: {len(val_scaled)}\n")
+#         logging.info(f"\nStarting training...")
+#         logging.info(f"  Epochs: {epochs}")
+#         logging.info(f"  Batch size: {batch_size}")
+#         logging.info(f"  Training samples: {len(train_scaled)}")
+#         logging.info(f"  Validation samples: {len(val_scaled)}\n")
         
-        history = model.fit(
-            x=train_scaled.iloc[:, :-delta_count],
-            y=train_scaled.iloc[:, -delta_count:],
-            batch_size=batch_size,
-            epochs=epochs,
-            validation_data=(val_scaled.iloc[:, :-delta_count], val_scaled.iloc[:, -delta_count:]),
-            use_multiprocessing=False,
-            callbacks=callbacks,
-            verbose=1
-        )
+#         history = model.fit(
+#             x=train_scaled.iloc[:, :-delta_count],
+#             y=train_scaled.iloc[:, -delta_count:],
+#             batch_size=batch_size,
+#             epochs=epochs,
+#             validation_data=(val_scaled.iloc[:, :-delta_count], val_scaled.iloc[:, -delta_count:]),
+#             use_multiprocessing=False,
+#             callbacks=callbacks,
+#             verbose=1
+#         )
         
-        logging.info("\n✓ Training completed")
-        if use_early_stopping and len(history.history['loss']) < epochs:
-            logging.info(f"  Early stopping triggered at epoch {len(history.history['loss'])}")
-            logging.info(f"  Best model restored from epoch {len(history.history['loss']) - 500}")
+#         logging.info("\n✓ Training completed")
+#         if use_early_stopping and len(history.history['loss']) < epochs:
+#             logging.info(f"  Early stopping triggered at epoch {len(history.history['loss'])}")
+#             logging.info(f"  Best model restored from epoch {len(history.history['loss']) - 500}")
         
-        return history
-    except Exception as e:
-        logging.error(f"Failed during training: {e}")
-        raise
-    finally:
-        # Clean up memory
-        gc.collect()
+#         return history
+#     except Exception as e:
+#         logging.error(f"Failed during training: {e}")
+#         raise
+#     finally:
+#         # Clean up memory
+#         gc.collect()
 
 
 def add_metadata_to_onnx(onnx_model, metadata_dict):
@@ -701,11 +701,119 @@ def load_separate_datasets(train_path, val_path, test_path):
         raise
 
 # ============================================================================
-# Main Training Pipeline
+# Modified Training Function with Pruning Support
+# ============================================================================
+
+def train_model_with_pruning(model, train_scaled, val_scaled, batch_size, epochs, 
+                            use_early_stopping=True, delta_count=4, pruning_enabled=False,
+                            target_sparsity=0.3, pruning_schedule='polynomial'):
+    """Train the model with optional pruning support.
+    
+    Args:
+        model: Keras model to train
+        train_scaled: Training data
+        val_scaled: Validation data
+        batch_size: Batch size for training
+        epochs: Number of epochs
+        use_early_stopping: Whether to use early stopping
+        delta_count: Number of output deltas
+        pruning_enabled: Whether to apply pruning
+        target_sparsity: Target sparsity level (if pruning_enabled=True)
+        pruning_schedule: Type of pruning schedule ('polynomial' or 'constant')
+        
+    Returns:
+        tuple: (history, model) where model is stripped of pruning if applied
+    """
+    try:
+        # Apply pruning if enabled
+        if pruning_enabled:
+            logging.info("\n" + "="*60)
+            logging.info("PRUNING MODE ENABLED")
+            logging.info("="*60)
+            model = apply_pruning_to_model(model, target_sparsity, pruning_schedule)
+            
+            # Need to recompile after pruning
+            logging.info("Recompiling pruned model...")
+            model.compile(optimizer=model.optimizer, weighted_metrics=[])
+            logging.info("✓ Model recompiled")
+        
+        callbacks =[LRLogger()]
+        
+        if use_early_stopping:
+            early_stop = tf.keras.callbacks.EarlyStopping(
+                monitor='loss',
+                patience=500,
+                restore_best_weights=True,
+                verbose=1
+            )
+            callbacks.append(early_stop)
+            logging.info("✓ Early stopping enabled (patience=500, monitor=val_loss)")
+        
+        # Add pruning callback if pruning is enabled
+        if pruning_enabled:
+            # Calculate total steps for this training run
+            total_steps = int(np.ceil(len(train_scaled) / batch_size)) * epochs
+            end_step = max(total_steps // 2, 100)  # Reach target sparsity by halfway through training
+            
+            pruning_callback = MagnitudePruningCallback(
+                target_sparsity=target_sparsity,
+                schedule=pruning_schedule,
+                begin_step=0,
+                end_step=1000,
+                frequency=1,
+                log_frequency=500
+            )
+            callbacks.append(pruning_callback)
+            logging.info(f"✓ Magnitude pruning callback added (end_step={end_step})")
+
+        logging.info(f"\nStarting training...")
+        logging.info(f"  Epochs: {epochs}")
+        logging.info(f"  Batch size: {batch_size}")
+        logging.info(f"  Training samples: {len(train_scaled)}")
+        logging.info(f"  Validation samples: {len(val_scaled)}")
+        if pruning_enabled:
+            logging.info(f"  Pruning enabled: target_sparsity={target_sparsity*100:.1f}%, schedule={pruning_schedule}\n")
+        else:
+            logging.info("Starting model training...")
+
+        history = model.fit(
+            x=train_scaled.iloc[:, :-delta_count],
+            y=train_scaled.iloc[:, -delta_count:],
+            batch_size=batch_size,
+            epochs=epochs,
+            validation_data=(val_scaled.iloc[:, :-delta_count], val_scaled.iloc[:, -delta_count:]),
+            use_multiprocessing=False,
+            callbacks=callbacks,
+            verbose=1
+        )
+        
+        logging.info("\n✓ Training completed")
+        
+        if use_early_stopping and len(history.history['loss']) < epochs:
+            logging.info(f"  Early stopping triggered at epoch {len(history.history['loss'])}")
+            logging.info(f"  Best model restored from epoch {len(history.history['loss']) - 500}")
+        
+        # Strip pruning from model before returning
+        if pruning_enabled:
+            logging.info("\nPost-training: Stripping pruning wrappers...")
+            model = strip_pruning_from_model(model)
+            log_pruning_status(model)
+        
+        return history, model
+        
+    except Exception as e:
+        logging.error(f"Failed during training: {e}")
+        raise
+    finally:
+        gc.collect()
+
+
+# ============================================================================
+# Modified Main Function (snippet to replace existing main)
 # ============================================================================
 
 def main(args):
-    """Main training pipeline."""
+    """Main training pipeline with pruning support."""
     start_time = time.process_time_ns()
     
     try:
@@ -744,18 +852,17 @@ def main(args):
         # Now filter to keep only relevant deltas
         if parameters['output'] != 'all':
             logging.info(f"Using only the {parameters['output']} output")
-            # Keep all yields (first -4 columns), filter only the 4 delta columns
             n_yields = train.shape[1] - 4
-            indices = list(range(n_yields))  # Keep all yields
+            indices = list(range(n_yields))
             
             if parameters['output'] == 'nLL_exp':
-                indices = indices + [n_yields]  # Keep only Delta_nLL_exp (1 column, not 2)
+                indices = indices + [n_yields]
             elif parameters['output'] == 'nLL_obs':
-                indices = indices + [n_yields + 1]  # Keep only Delta_nLL_obs
+                indices = indices + [n_yields + 1]
             elif parameters['output'] == 'nLLA_exp':
-                indices = indices + [n_yields + 2]  # Keep only Delta_nLLA_exp
+                indices = indices + [n_yields + 2]
             elif parameters['output'] == 'nLLA_obs':
-                indices = indices + [n_yields + 3]  # Keep only Delta_nLLA_obs
+                indices = indices + [n_yields + 3]
             else:
                 raise ValueError(f'Unrecognised output parameter: {parameters["output"]}')
             train = train.iloc[:, indices]
@@ -792,7 +899,6 @@ def main(args):
                 except:
                     pass
             
-            # Give system time to stabilize
             import time as time_module
             time_module.sleep(3)
             
@@ -803,9 +909,17 @@ def main(args):
         # Build and compile model
         model, optimizer = build_and_compile_model(parameters, columns, parameters['batch_size'], len(train_scaled), delta_count)
         
-        # Train model
-        history = train_model(model, train_scaled, val_scaled, parameters['batch_size'], parameters['epochs'],
-                            use_early_stopping=parameters['early_stop'], delta_count=delta_count)
+        # Train model with optional pruning
+        pruning_enabled = parameters.get('pruning', False)
+        target_sparsity = parameters.get('target_sparsity', 0.3)
+        pruning_schedule = parameters.get('pruning_schedule', 'polynomial')
+        
+        history, model = train_model_with_pruning(
+            model, train_scaled, val_scaled, parameters['batch_size'], parameters['epochs'],
+            use_early_stopping=parameters['early_stop'], delta_count=delta_count,
+            pruning_enabled=pruning_enabled, target_sparsity=target_sparsity, 
+            pruning_schedule=pruning_schedule
+        )
         
         # Calculate training time
         end_time = time.process_time_ns() - start_time
@@ -848,9 +962,7 @@ def main(args):
         logging.error(f"Error: {e}", exc_info=True)
         sys.exit(1)
     finally:
-        # Final memory cleanup
         gc.collect()
-
 
 def parse_arguments():
     """Parse command line arguments."""
