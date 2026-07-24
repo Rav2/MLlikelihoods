@@ -354,7 +354,7 @@ def build_and_compile_model(parameters, columns, batch_size, train_size, delta_c
             gradient_clipping=parameters['gradient_clipping'],
         )
         
-        optimizer_name = parameters.get('optimizer', 'adam')
+        optimizer_name = parameters.get('optimizer', 'Adam')
         if optimizer_name == 'Adam':
             # Create optimizer (handle Mac M1/M2 compatibility)
             if platform.system() == "Darwin" and platform.processor() == "arm":
