@@ -1,25 +1,25 @@
 author: 'Rafal Maselek'
 # base number of neurons in each layer
-neurons: 4096
+neurons: 3000
 # how many blocks (block=dense+batch_norm+activation+dropout)
 blocks: 5
 # L2 regularisation
-l2: 0.00001
+l2: 0.00005
 # activateion: relu, relu6, tanh, elu, swish
 activation: 'elu'
 # use batch norm or not
 batch_norm: True
 # dropout rate
-dropout_rate: 0.0
+dropout_rate: 0
 # use residual connections to all blocks
 use_residual : False
 # loss: MSE, M4E, MAE, MAPE, hybrid, huber, log_cosh, triple, MSLE
 # see losses.py for definitions
-loss : 'hybrid'
+loss : 'MAE'
 # train separate heads for each output
 separate_heads : False
 # number of neurons in a head
-head_size : 512
+head_size : 1024
 # use batch norm in heads
 head_batch_norm : True
 # size of the gradient clipping
@@ -34,5 +34,3 @@ optimizer: 'Adam'
 early_stop: true
 optimize: false
 output: 'all'
-
-

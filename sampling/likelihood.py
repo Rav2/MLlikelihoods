@@ -27,15 +27,35 @@ import gc
 
 
 def set_seeds(seed):
+    """Seed all relevant random number generators for reproducibility.
+
+    Sets the seed used by the Python hash algorithm, the standard
+    library ``random`` module, TensorFlow, and NumPy, so that a run can
+    be reproduced deterministically given the same seed value.
+
+    Args:
+        seed (int): Seed value applied to all random number generators.
+    """
     os.environ['PYTHONHASHSEED'] = str(seed)
     random.seed(seed)
     tf.random.set_seed(seed)
     np.random.seed(seed)
-    
+
 
 def set_global_determinism(seed):
+    """Configure TensorFlow (and other RNGs) for fully deterministic execution.
+
+    In addition to seeding the random number generators via
+    :func:`set_seeds`, this forces TensorFlow to use deterministic
+    operations and restricts it to single-threaded inter-/intra-op
+    parallelism, which is required to get bit-reproducible results
+    across runs.
+
+    Args:
+        seed (int): Seed value forwarded to :func:`set_seeds`.
+    """
     os.environ['TF_DETERMINISTIC_OPS'] = '1'
-    os.environ['TF_CUDNN_DETERMINISTIC'] = '1'    
+    os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
     tf.config.threading.set_inter_op_parallelism_threads(1)
     tf.config.threading.set_intra_op_parallelism_threads(1)
     tf.config.experimental.enable_op_determinism()
@@ -44,6 +64,37 @@ def set_global_determinism(seed):
 
 
 def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
+    """Find, for each bin, the most negative injectable signal that keeps the likelihood well-defined.
+
+    Starting from a candidate lower bound on the signal yield per bin
+    (``nSmin``), this iteratively bisects the injected signal fraction
+    (``mu``) so that both the expected (apriori) and observed
+    likelihoods at ``poi_test=1.0`` remain finite (not NaN/inf) for a
+    ``pyhf``/``spey`` statistical model built from ``bkg_spec`` with the
+    signal injected. This yields the true minimal (most negative)
+    signal yield allowed per bin, which is used later to bound the MCMC
+    scan.
+
+    Args:
+        niter (int): Number of bisection iterations to perform per bin.
+            Values below 1 disable negative signal injection in signal
+            regions (a warning is logged).
+        bkg_spec (dict): Background-only ``pyhf`` workspace specification.
+        stat_wrapper (callable): ``spey`` statistical model backend/wrapper
+            (e.g. obtained via ``spey.get_backend("pyhf")``) used to build
+            the statistical model for each candidate signal injection.
+        nSmin (numpy.ndarray): Initial candidate lower limits on the
+            signal yield, one entry per bin (flattened across channels).
+        channels_and_bins (list[tuple]): List of ``(channel_name,
+            channel_type, n_bins)`` tuples describing the channel layout
+            and their number of bins, in the same order as ``nSmin``.
+        logger (logging.Logger): Logger used to report progress and
+            warnings when a stable lower limit cannot be found for a bin.
+
+    Returns:
+        numpy.ndarray: Array of the same shape as ``nSmin`` containing
+        the refined minimal signal yield allowed for each bin.
+    """
     if niter < 1:
         logger.warning(f"The value of the 'low_lim_samples' parameter is {niter} < 1! No negative signal in SRs will be injected.")
     
@@ -108,13 +159,40 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
 
 
 class NewStateWrapper():
+    """Callable proposal generator for the random-walk Metropolis MCMC sampler.
+
+    Given the previous MCMC state, proposes a new state by sampling from
+    a diagonal multivariate normal distribution centered on the previous
+    state, then truncates the proposal so that no component falls below
+    the allowed minimal signal yield.
+    """
     def __init__(self, std, minimalS_allowed):
+        """Store the per-dimension step size and the truncation floor.
+
+        Args:
+            std (numpy.ndarray): Per-dimension standard deviations
+                (step sizes) used for the proposal distribution.
+            minimalS_allowed (numpy.ndarray): Per-dimension lower bounds;
+                proposed values below these are clipped up to them.
+        """
         #self.nSmin = tf.convert_to_tensor(nSmin, dtype=float)
         #self.nSmax = tf.convert_to_tensor(nSmax, dtype=float)
         self.minimalS_allowed = minimalS_allowed
         self.std = std
         self.dims = np.shape(std)[0]
     def __call__(self, prev_state, seed):
+        """Draw a new proposal state from the previous MCMC state.
+
+        Args:
+            prev_state (array-like): Current state of the MCMC chain
+                (signal yields per bin).
+            seed: Random seed forwarded to the TensorFlow Probability
+                sampler for reproducibility.
+
+        Returns:
+            numpy.ndarray: Proposed new state, with any component below
+            ``minimalS_allowed`` clipped to that lower bound.
+        """
         #a = tf.convert_to_tensor(a, dtype=float)
         new_state_dist = tfp.distributions.MultivariateNormalDiag(loc=prev_state, scale_diag=self.std*np.ones(self.dims))
         new_state = new_state_dist.sample(seed=seed)
@@ -124,8 +202,52 @@ class NewStateWrapper():
 
 
 class LikelihoodCalculatorWrapper():
+    """Callable target log-probability function for the MCMC scan.
+
+    Instances of this class keep track of the background specification
+    and construct a signal patch from a vector of signal yields (``S``)
+    on each call, computing the (negative) log-likelihood used as the
+    MCMC target density. It also buffers computed likelihoods and
+    yields, periodically flushing them to ``output_file``, and caches
+    the mu=0 and maximum likelihoods (computed once, on the first call).
+    """
     # create a callable object that will keep information about the background and construct patches from the S yields
-    def __init__(self, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger):
+    def __init__(self, bkg_spec, channels_and_bins, central_values, output_file, buff_size, \
+                criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger):
+        """Initialize the wrapper and write the output CSV header.
+
+        Args:
+            bkg_spec (dict): Background-only ``pyhf`` workspace specification.
+            channels_and_bins (list[tuple]): List of ``(channel_name,
+                channel_type, n_bins)`` tuples describing the analysis
+                channel layout.
+            central_values (numpy.ndarray): Central (background) yields
+                per bin, added to the sampled signal yields when saving
+                results.
+            output_file (str): Path to the CSV file where per-sample
+                yields and likelihoods will be written. Created fresh;
+                raises if it already exists.
+            buff_size (int): Number of samples to accumulate in memory
+                before flushing to ``output_file``.
+            criterion (str): Which quantity to return (negated) as the
+                MCMC target log-probability. One of ``'nLL_obs_mu1'``,
+                ``'nLL_exp_mu1'``, ``'LL_obs_mu1'``, ``'LL_exp_mu1'``.
+            mu_bounds (tuple): ``(mu_min, mu_max)`` bounds on the signal
+                strength parameter used during likelihood maximization.
+            seed (int): Random seed applied at the start of every call
+                for reproducibility.
+            remove_channels (list[str] or None): Names of channels to
+                exclude (e.g. control/validation regions) from the fit
+                and from the saved output columns.
+            sig_rel_unc (float): Relative uncertainty on the injected
+                signal yield, used to add a ``histosys`` modifier when
+                non-zero.
+            logger (logging.Logger): Logger used for progress, debug and
+                error messages.
+
+        Raises:
+            FileExistsError: If ``output_file`` already exists.
+        """
         self._bkg_spec = bkg_spec
         self._channels_and_bins = channels_and_bins
         self._counter = 0
@@ -135,6 +257,7 @@ class LikelihoodCalculatorWrapper():
         self._criterion = criterion
         self._mu_bounds = mu_bounds
         self._remove_channels = [] if remove_channels is None else remove_channels
+        self._sig_rel_unc = sig_rel_unc
         self.logger = logger
         # write the first line with header names
         bin_no = 0
@@ -176,6 +299,19 @@ class LikelihoodCalculatorWrapper():
 
 
     def calculate_Lmu0(self, S_yields):
+        """Compute and cache the mu=0 (background-only) likelihoods.
+
+        Builds a statistical model with the given signal yields injected,
+        then computes the expected (apriori) and observed negative
+        log-likelihoods, as well as their Asimov counterparts, all at
+        ``poi_test=0.0``. Results are cached on the instance
+        (``nLL_exp_mu0``, ``nLL_obs_mu0``, ``nLLA_exp_mu0``,
+        ``nLLA_obs_mu0``) for reuse in subsequent calls.
+
+        Args:
+            S_yields (array-like): Signal yields per bin to inject before
+                computing the likelihoods.
+        """
         self.logger.debug('Calculating nLL for mu=0.')
         interpreter = WorkspaceInterpreter(self._bkg_spec)
         interpreter = self.inject_signal(interpreter, S_yields)
@@ -208,6 +344,21 @@ class LikelihoodCalculatorWrapper():
         gc.collect()
 
     def calculate_Lmax(self, S_yields):
+        """Compute the maximum-likelihood estimates for the given signal yields.
+
+        Builds a statistical model with the given signal yields injected,
+        restricts the signal-strength parameter bounds to
+        ``self._mu_bounds``, and maximizes the likelihood (and its Asimov
+        counterpart) for both expected (apriori) and observed data.
+        Failures in any of the four maximizations are caught and logged,
+        with ``[None, None]`` substituted for that result. The combined
+        results are stored in ``self.nLL_max`` as a list of
+        ``[nLL_exp_max, nLL_obs_max, nLLA_exp_max, nLLA_obs_max]``.
+
+        Args:
+            S_yields (array-like): Signal yields per bin to inject before
+                maximizing the likelihood.
+        """
         self.logger.info('Calculating maximum likelihood.')
         stat_wrapper = spey.get_backend("pyhf")
         interpreter = WorkspaceInterpreter(self._bkg_spec)
@@ -253,26 +404,109 @@ class LikelihoodCalculatorWrapper():
         self.nLL_max = [list(nLL_exp_max), list(nLL_obs_max), list(nLLA_exp_max), list(nLLA_obs_max)]
 
     def clear_buffer(self):
+        """Reset the in-memory results buffer and sample counter.
+
+        Discards the current results array and allocates a fresh empty
+        buffer of shape ``(buff_size, n_bins + 8)``, resetting the
+        internal sample counter to zero.
+        """
         del self._results
         self._results = np.empty(shape=(self._buff_size, self._bin_no+8), dtype=float)
         self._counter = 0
 
     def inject_signal(self, interpreter, S_yields):
+        """Inject signal yields (with appropriate modifiers) into each channel.
+
+        Iterates over ``self._channels_and_bins``, slicing the
+        corresponding signal yields out of ``S_yields`` for each channel,
+        and injects them into the workspace via ``interpreter``. If
+        ``self._sig_rel_unc`` is non-negligible, a ``histosys`` modifier
+        encoding the relative signal uncertainty is added alongside the
+        standard ``lumi`` and ``mu_SIG`` (``normfactor``) modifiers;
+        otherwise only the latter two are used.
+
+        Args:
+            interpreter (WorkspaceInterpreter): Workspace interpreter used
+                to inject the signal and build the resulting patch.
+            S_yields (array-like): Signal yields per bin, in the same
+                flattened order as ``self._channels_and_bins``.
+
+        Returns:
+            WorkspaceInterpreter: The same ``interpreter`` instance, with
+            the signal injected into every channel.
+        """
         ii = 0
         for c, sr, b in self._channels_and_bins:
-            bin_vals = np.array(S_yields[ii:ii + b]) 
-            interpreter.inject_signal(c, bin_vals)
+            bin_vals = np.array(S_yields[ii:ii + b])
+            if abs(self._sig_rel_unc) > 1e-17:
+                modifiers=[
+                    {
+                        "name": "Wolfgang_unc",
+                        "type": "histosys",
+                        "data": {
+                            "hi_data": bin_vals * (1.0+self._sig_rel_unc), 
+                            "lo_data": [ float(np.max([0.0, bval*(1.0-self._sig_rel_unc)])) for bval in bin_vals]  
+                            },
+                    },
+                    {
+                        "data": None,
+                        "name": "lumi",
+                        "type": "lumi"
+                    },
+                    {
+                        "data": None,
+                        "name": "mu_SIG",
+                        "type": "normfactor"
+                    }
+                ]
+            else:
+                modifiers=[
+                    {
+                        "data": None,
+                        "name": "lumi",
+                        "type": "lumi"
+                    },
+                    {
+                        "data": None,
+                        "name": "mu_SIG",
+                        "type": "normfactor"
+                    }
+                ]
+
+            interpreter.inject_signal(
+                c,
+                bin_vals,
+                modifiers=modifiers,
+            )
+
             ii += b
         return interpreter  
 
     def save_results(self, counter=None):
+        """Append the buffered results to the output CSV file and clear the buffer.
+
+        Args:
+            counter (int, optional): Number of valid rows in the results
+                buffer to write out. Defaults to ``self._counter`` (the
+                number of samples accumulated so far).
+        """
         if counter is None:
             counter = self._counter
         with open(self._output_file, 'a') as fout:
                 np.savetxt(fout, self._results[:counter], fmt="%+010.8f", delimiter=',')
         self.clear_buffer()
-    
+
     def check_for_nan(self, likelihood, name):
+        """Sanitize a likelihood value, substituting a large finite value for NaN.
+
+        Args:
+            likelihood (float): Likelihood value to check.
+            name (str): Human-readable name of the quantity, used in the
+                logged error message if ``likelihood`` is NaN.
+
+        Returns:
+            float: ``likelihood`` unchanged, or ``1e10`` if it was NaN.
+        """
         if isnan(likelihood):
             self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +1e10')
             return np.float64(1e10)
@@ -280,6 +514,30 @@ class LikelihoodCalculatorWrapper():
             return likelihood
     
     def __call__(self, S_yields):
+        """Compute the MCMC target log-probability for a proposed signal state.
+
+        On the first call, caches the mu=0 likelihoods (via
+        :meth:`calculate_Lmu0`) and the maximum likelihoods (via
+        :meth:`calculate_Lmax`). On every call, injects ``S_yields`` into
+        the workspace, computes the mu=1 expected/observed likelihoods
+        (and their Asimov counterparts), buffers the resulting yields and
+        likelihoods (flushing to disk via :meth:`save_results` once the
+        buffer is full), and returns the quantity selected by
+        ``self._criterion`` as the value to be used by the MCMC sampler.
+
+        Args:
+            S_yields (array-like): Proposed signal yields per bin for
+                this MCMC step.
+
+        Returns:
+            float: The (possibly negated) likelihood or log-likelihood
+            selected by ``self._criterion``, used as target
+            log-probability by the random-walk Metropolis sampler.
+
+        Raises:
+            ValueError: If ``self._criterion`` is not one of the
+                recognized criterion strings.
+        """
         set_seeds(self._seed)
         if self.nLL_exp_mu0 is None:
             # first call
@@ -290,9 +548,11 @@ class LikelihoodCalculatorWrapper():
         for channel_name in self._remove_channels:
             interpreter.remove_channel(channel_name)
 
+        new_patch = interpreter.make_patch()
+        # self.logger.warning(new_patch)
         statistical_model = self._stat_wrapper(
                                             background_only_model=interpreter.background_only_model,
-                                            signal_patch=interpreter.make_patch(),
+                                            signal_patch=new_patch,
                                         )
         statistical_model.backend.manager.backend = "tensorflow"
         nLL_exp_mu1 = statistical_model.likelihood(poi_test=1.0, expected='apriori')       
@@ -304,7 +564,6 @@ class LikelihoodCalculatorWrapper():
         nLLA_exp_mu1 = self.check_for_nan(nLLA_exp_mu1, 'nLLA_exp_mu1')
         nLLA_obs_mu1 = statistical_model.asimov_likelihood(poi_test=1.0, expected='observed')
         nLLA_obs_mu1 = self.check_for_nan(nLLA_obs_mu1, 'nLLA_obs_mu1')
-
         likelihoods_to_save = [self.nLL_exp_mu0, nLL_exp_mu1, self.nLL_obs_mu0, nLL_obs_mu1, \
                                 self.nLLA_exp_mu0, nLLA_exp_mu1, self.nLLA_obs_mu0, nLLA_obs_mu1]
         yields_to_save = list(np.array((self._central_values+S_yields))[self._mask])
@@ -329,11 +588,55 @@ class LikelihoodCalculatorWrapper():
         del nLL_exp_mu1, nLL_obs_mu1, nLLA_exp_mu1, nLLA_obs_mu1,
 
     def get_counter(self):
+        """Return the number of results currently held in the in-memory buffer.
+
+        Returns:
+            int: Number of samples accumulated since the last flush.
+        """
         return self._counter
 
-def scan(p0, N, stds, minimalS_allowed, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger):
+def scan(p0, N, stds, minimalS_allowed, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger):
+    """Run a single random-walk Metropolis MCMC chain over signal yields.
+
+    Builds a :class:`LikelihoodCalculatorWrapper` as the target
+    log-probability function and a :class:`NewStateWrapper` as the
+    proposal function, then runs ``N-1`` steps of TensorFlow
+    Probability's ``RandomWalkMetropolis`` sampler starting from ``p0``.
+    Any results still buffered in memory after the chain finishes are
+    flushed to disk.
+
+    Args:
+        p0 (array-like): Initial state (signal yields per bin) for the chain.
+        N (int): Total number of MCMC samples desired for the chain
+            (``N-1`` transition steps are run in addition to ``p0``).
+        stds (numpy.ndarray): Per-dimension proposal standard deviations,
+            passed to :class:`NewStateWrapper`.
+        minimalS_allowed (numpy.ndarray): Per-dimension lower bounds on
+            the signal yield, passed to :class:`NewStateWrapper`.
+        bkg_spec (dict): Background-only ``pyhf`` workspace specification.
+        channels_and_bins (list[tuple]): List of ``(channel_name,
+            channel_type, n_bins)`` tuples describing the channel layout.
+        central_values (numpy.ndarray): Central (background) yields per bin.
+        output_file (str): Path to the CSV file where sampled yields and
+            likelihoods are written.
+        buff_size (int): Number of samples to buffer before flushing to disk.
+        criterion (str): Which likelihood quantity to use as MCMC target;
+            forwarded to :class:`LikelihoodCalculatorWrapper`.
+        mu_bounds (tuple): ``(mu_min, mu_max)`` bounds on the signal
+            strength used during likelihood maximization.
+        seed (int): Random seed used to seed RNGs and the MCMC sampler.
+        remove_channels (list[str] or None): Channels to exclude from the fit.
+        sig_rel_unc (float): Relative uncertainty on the injected signal yield.
+        logger (logging.Logger): Logger for progress and error messages.
+
+    Returns:
+        list: The cached maximum-likelihood results
+        (``target_log_prob_fn.nLL_max``), i.e. a list of
+        ``[nLL_exp_max, nLL_obs_max, nLLA_exp_max, nLLA_obs_max]``
+        computed on the first call of the target log-probability function.
+    """
     set_seeds(seed)
-    target_log_prob_fn = LikelihoodCalculatorWrapper(bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger) 
+    target_log_prob_fn = LikelihoodCalculatorWrapper(bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger) 
     new_state_fn_truncated = NewStateWrapper(stds, minimalS_allowed)   
     RandomWalkMH=tfp.mcmc.RandomWalkMetropolis(target_log_prob_fn, new_state_fn=new_state_fn_truncated, name=None)
     tfp.mcmc.sample_chain(
@@ -353,7 +656,41 @@ def scan(p0, N, stds, minimalS_allowed, bkg_spec, channels_and_bins, central_val
 
     
 
-def calculate_sigmas(nSmin, nSmax, mask, SR_sigma, CR_sigma, VR_sigma, channels_and_bins):
+def calculate_sigmas(nSmin, nSmax, mask, SR_sigma, CR_sigma, VR_sigma, channels_and_bins, logger=None):
+    """Compute per-bin MCMC proposal standard deviations from the scan range.
+
+    For each channel, the proposal standard deviation is set to a
+    fraction (``SR_sigma``, ``CR_sigma``, or ``VR_sigma`` depending on the
+    channel type) of the full scan range (``nSmax - nSmin``) for its
+    bins. Bins masked out (signal leakage disabled) are given a standard
+    deviation of zero so they are not varied by the sampler.
+
+    Args:
+        nSmin (numpy.ndarray): Lower limits on the signal yield per bin.
+        nSmax (numpy.ndarray): Upper limits on the signal yield per bin.
+        mask (numpy.ndarray): Boolean mask; ``False`` entries correspond
+            to bins that should not be varied (std forced to 0).
+        SR_sigma (float): Fraction of the scan range used as std for
+            signal-region (``'SR'``) bins.
+        CR_sigma (float): Fraction of the scan range used as std for
+            control-region (``'CR'``) bins.
+        VR_sigma (float): Fraction of the scan range used as std for
+            validation-region (``'VR'``) bins.
+        channels_and_bins (list[tuple]): List of ``(channel_name,
+            channel_type, n_bins)`` tuples describing the channel layout.
+        logger (logging.Logger, optional): Logger used to report a
+            critical message if an unrecognized channel type is
+            encountered. If ``None``, the error is raised without being
+            logged first.
+
+    Returns:
+        numpy.ndarray: Array of per-bin proposal standard deviations,
+        same shape as ``nSmax``.
+
+    Raises:
+        ValueError: If a channel type other than ``'SR'``, ``'CR'``, or
+            ``'VR'`` is encountered.
+    """
     stds = np.empty(nSmax.shape, dtype=float)
     deltaS = nSmax-nSmin
     ii = 0
@@ -367,7 +704,8 @@ def calculate_sigmas(nSmin, nSmax, mask, SR_sigma, CR_sigma, VR_sigma, channels_
             val = VR_sigma
         else:
             mes = f"[ERROR] Wrong type of the channel provided: {t}!"
-            self.logger.critical(mes)
+            if logger is not None:
+                logger.critical(mes)
             raise ValueError(mes)
         stds[ii:ii+b] = val * deltaS[ii:ii+b]
         ii += b
@@ -376,8 +714,44 @@ def calculate_sigmas(nSmin, nSmax, mask, SR_sigma, CR_sigma, VR_sigma, channels_
 
 
 class ScanWrapper():
-    def __init__(self, N,  bkg_spec, sigmas, channels_and_bins, central_values, buff_size, minimalS_allowed, criterion, mu_bounds, seed, remove_channels=None, logger=None):
-        self._N = N 
+    """Callable wrapper that runs a single MCMC scan, suitable for use with ``multiprocessing``.
+
+    Bundles all the parameters needed by :func:`scan` (background
+    specification, proposal standard deviations, channel layout, output
+    settings, etc.) so that an instance can be called with just a
+    ``(starting_point, output_file)`` pair, e.g. via
+    ``multiprocessing.Pool.imap_unordered``.
+    """
+    def __init__(self, N,  bkg_spec, sigmas, channels_and_bins, central_values, buff_size, minimalS_allowed, criterion, mu_bounds, seed, remove_channels=None, sig_rel_unc=0.0, logger=None):
+        """Store the fixed parameters shared by all scans launched via this wrapper.
+
+        Args:
+            N (int): Number of MCMC samples to generate per scan.
+            bkg_spec (dict): Background-only ``pyhf`` workspace specification.
+            sigmas (numpy.ndarray): Per-bin proposal standard deviations
+                (e.g. from :func:`calculate_sigmas`).
+            channels_and_bins (list[tuple]): List of ``(channel_name,
+                channel_type, n_bins)`` tuples describing the channel layout.
+            central_values (numpy.ndarray): Central (background) yields per bin.
+            buff_size (int): Number of samples to buffer before flushing to disk.
+            minimalS_allowed (numpy.ndarray): Per-bin lower bounds on the
+                signal yield allowed during the scan.
+            criterion (str): Selection of which likelihood the sampler
+                should target; one of ``'nLL_obs_mu1'``, ``'nLL_exp_mu1'``,
+                ``'LL_obs_mu1'``, ``'LL_exp_mu1'``, or ``'mu1'`` (in which
+                case one of the ``nLL_*_mu1`` criteria is chosen at random
+                on each call).
+            mu_bounds (tuple): ``(mu_min, mu_max)`` bounds on the signal
+                strength used during likelihood maximization.
+            seed (int): Random seed used to seed RNGs for each scan.
+            remove_channels (list[str], optional): Channels to exclude
+                from the fit. Defaults to ``None``.
+            sig_rel_unc (float, optional): Relative uncertainty on the
+                injected signal yield. Defaults to ``0.0``.
+            logger (logging.Logger, optional): Logger to use; if ``None``,
+                a new one is created via ``setup_logger()``.
+        """
+        self._N = N
         self._bkg_spec = bkg_spec
         self._channels_and_bins = channels_and_bins
         self._buff_size = buff_size
@@ -388,6 +762,7 @@ class ScanWrapper():
         self._mu_bounds = mu_bounds
         self._seed = seed
         self._remove_channels = remove_channels
+        self._sig_rel_unc = sig_rel_unc
         self.nLL_max = None
         if logger is None:
             self.logger = setup_logger()
@@ -396,6 +771,29 @@ class ScanWrapper():
 
     
     def __call__(self, dat):
+        """Run one MCMC scan for a given starting point and output file.
+
+        Resolves the effective criterion (randomly choosing between
+        expected and observed mu=1 criteria if ``self._criterion ==
+        'mu1'``), then delegates to :func:`scan` with all stored
+        parameters. Only the first call's maximum-likelihood result is
+        retained in ``self.nLL_max``.
+
+        Args:
+            dat (tuple): ``(p0, output_file)`` where ``p0`` is the
+                starting state (signal yields per bin) for the chain and
+                ``output_file`` is the path of the CSV file to write
+                results to.
+
+        Returns:
+            list or None: The maximum-likelihood results
+            (``[nLL_exp_max, nLL_obs_max, nLLA_exp_max, nLLA_obs_max]``)
+            if this is the first call on this instance (``self.nLL_max``
+            was ``None``), otherwise ``None`` implicitly.
+
+        Raises:
+            ValueError: If ``self._criterion`` is not a recognized value.
+        """
         set_seeds(self._seed)
         p0, output_file = dat
         if self._criterion in ['nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1']:
@@ -411,7 +809,7 @@ class ScanWrapper():
         nLL_max = scan(p0, self._N, self._stds, self._minimalS_allowed, self._bkg_spec, \
             self._channels_and_bins, self._central_values, output_file, \
             self._buff_size, criterion, self._mu_bounds, self._seed, self._remove_channels, \
-            self.logger)
+            self._sig_rel_unc, self.logger)
         gc.collect()
         if self.nLL_max is None:
             self.nLL_max = nLL_max

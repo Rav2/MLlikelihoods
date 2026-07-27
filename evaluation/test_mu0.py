@@ -80,8 +80,10 @@ print('y_pred', y_pred)
 print('2nd+3rd term:', y_pred_norm * std_arr[-4:] + mean_arr[-4:])
 print()
 
+# print('channel_types[0]', channel_types[0])
 print('EXPECTED')
-exp_inputs = [ bkg[i][1] if channel_types[0][bkg[i][0].split('-')[0] ] == 'SR' else obs[i][1] for i in range(len(bkg)) ] 
+# exp_inputs = [ bkg[i][1] if channel_types[0][bkg[i][0].rsplit('-', 1)[0]] == 'SR' else obs[i][1] for i in range(len(bkg)) ]
+exp_inputs = [ bkg[i][1] if bkg[i][0].startswith('SR') else obs[i][1] for i in range(len(bkg)) ]
 exp_inputs_norm = (exp_inputs - mean_arr[:Nchannels])/std_arr[:Nchannels]
 y_pred_norm = sess.run(None, {'input_1': np.array([exp_inputs_norm], dtype=np.float32)})
 y_pred_norm = np.ndarray.flatten(y_pred_norm[0])
@@ -92,25 +94,28 @@ print('2nd+3rd term:', y_pred_norm * std_arr[-4:] + mean_arr[-4:])
 print()
 
 # print('FOUND')
-# found_yields = [ bkg[ii][1] if channel_types[bkg[ii][0]] == 'SR' else obs[ii][1] ]
+found_yields = [ 367.0, 272.0, 218.0, 799.0, 2053.0, 3106.0, 4.06139458, 4.21203914, 3.45215761, 5.31895162, 8.18800671, 9.55390757, 14.32208504, 22.77468355, 8.72492185, 28.09923184, 8.31279901, 20.23106147, 7.31548404, 25.28782017, 6.53411911, 20.55649222, 11.76173348, 7.31170604, 7.02075972, 4.68143295, 7.38659872, 12.55842885, 16.48819414, 27.85722065, 13.49823183, 38.53881294, 12.03491941, 37.51419425, 13.14457651, 36.41258002, 7.46164905, 26.69808306, 195.4165416, 195.4165416, 204.33094092, 204.33094092, 195.41654173, 195.41654173, 194.77957442, 194.77957442, ]
+y_orig = found_yields[-8:]
+for ii in [-8, -6, -4, -2]:
+    found_yields[ii+1] = found_yields[ii+1] - found_yields[ii]
+    found_yields[ii] = None
+found_yields = [x for x in found_yields if x is not None] 
 
-# for ii in [-8, -6, -4, -2]:
-#     found_yields[ii+1] = found_yields[ii+1] - found_yields[ii]
-#     found_yields[ii] = None
-# found_yields = [x for x in found_yields if x is not None] 
+print( len(found_yields), len(mean_arr), len(std_arr) )
 
-# found_yields_norm = (found_yields - mean_arr)/std_arr
-# print('found_yields', found_yields[:Nchannels])
-# print('found__yields_norm', found_yields_norm[:Nchannels])
-# print('found_yields_targets', found_yields[Nchannels:])
-# print('found__yields_targets_norm', found_yields_norm[Nchannels:])
+found_yields_norm = (found_yields - mean_arr)/std_arr
+print('found_yields', found_yields[:Nchannels])
+print('found__yields_norm', found_yields_norm[:Nchannels])
+print('found_yields_targets', found_yields[Nchannels:])
+print('found__yields_targets_norm', found_yields_norm[Nchannels:])
 
-# y_pred_norm = sess.run(None, {'input_1': np.array( [found_yields_norm[:Nchannels]], dtype=np.float32)})
-# y_pred_norm = np.ndarray.flatten(y_pred_norm[0])
-# print('y_pred_norm', y_pred_norm)
-# y_pred =  nll_mu0 + y_pred_norm * std_arr[-4:] + mean_arr[-4:]
-# print('y_pred', y_pred)
-# print('2nd+3rd term:', y_pred_norm * std_arr[-4:] + mean_arr[-4:])
+y_pred_norm = sess.run(None, {'input_1': np.array( [found_yields_norm[:Nchannels]], dtype=np.float32)})
+y_pred_norm = np.ndarray.flatten(y_pred_norm[0])
+print('y_pred_norm', y_pred_norm)
+y_pred =  nll_mu0 + y_pred_norm * std_arr[-4:] + mean_arr[-4:]
+print('y_pred', y_pred)
+print('y_orig', y_orig[::2])
+print('2nd+3rd term:', y_pred_norm * std_arr[-4:] + mean_arr[-4:])
 
 
  # 4.18988813   2.90037017   1.00784736  10.9629761   10.32217295

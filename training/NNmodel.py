@@ -12,13 +12,7 @@ from losses import *
 
 @tf.keras.utils.register_keras_serializable()
 class MyBlock(layers.Layer):
-    """
-    A reusable neural network block with dense layer, batch normalization, 
-    activation, and optional residual connections.
-    
-    This block encapsulates a common pattern: dense -> batch norm -> activation -> dropout,
-    with optional skip connections for residual learning.
-    """
+    """Fixed version - projection layer properly managed"""
 
     def __init__(self,
                  neurons=256,
@@ -26,23 +20,8 @@ class MyBlock(layers.Layer):
                  activation='relu',
                  batch_norm=False,
                  dropout_rate=0.0,
-                 use_residual = False,
+                 use_residual=False,
                  **kwargs):
-        """
-        Initialize a MyBlock layer.
-        
-        Args:
-            neurons (int): Number of output units in the dense layer. Default: 256.
-            l2 (float): L2 regularization coefficient. Default: 1e-3.
-            activation (str): Activation function name ('relu', 'tanh', 'elu', 'relu6', 'swish'). Default: 'relu'.
-            batch_norm (bool): Whether to apply batch normalization. Default: False.
-            dropout_rate (float): Dropout rate between 0 and 1. Default: 0.0.
-            use_residual (bool): Whether to add residual/skip connections. Default: False.
-            **kwargs: Additional keyword arguments passed to parent Layer class.
-        
-        Raises:
-            ValueError: If activation function is not recognized.
-        """
         super().__init__(**kwargs)
         self.neurons = neurons
         self.l2 = l2
@@ -52,15 +31,16 @@ class MyBlock(layers.Layer):
         self.dropout_rate = dropout_rate
         self.use_residual = use_residual
 
-        self.dense = keras.layers.Dense(neurons, 
-                                        activation=None, 
-                                        kernel_regularizer=keras.regularizers.L2(l2), 
-                                        name=f"{self.name}_dense")
+        self.dense = keras.layers.Dense(
+            neurons, 
+            activation=None, 
+            kernel_regularizer=keras.regularizers.L2(l2), 
+            name=f"{self.name}_dense"
+        )
         
-        if batch_norm:
-            self.batchnorm = keras.layers.BatchNormalization()
-        else:
-            self.batchnorm = keras.layers.Identity()
+        self.batchnorm = (keras.layers.BatchNormalization() 
+                         if batch_norm 
+                         else keras.layers.Identity())
 
         if activation.strip() == 'relu':
             self.activation = keras.layers.Activation(tf.nn.relu)
@@ -76,32 +56,26 @@ class MyBlock(layers.Layer):
             raise ValueError(f'Unknown activation function: {activation}')
 
         self.dropout = keras.layers.Dropout(self.dropout_rate)
-
+        
+        # Initialize projection as None - will be created in build() when input shape is known
         self.projection = None
     
     def build(self, input_shape):
-        # Add projection if dimensions don't match for residual
-        if self.use_residual and input_shape[-1] != self.neurons:
-            self.projection = keras.layers.Dense(
-                self.neurons,
-                kernel_regularizer=keras.regularizers.L2(self.l2),
-                use_bias=False
-            )
+        """Create projection layer only when we know input dimensions"""
+        if self.use_residual:
+            input_dim = input_shape[-1]
+            # Only create projection if dimensions don't match
+            if input_dim != self.neurons:
+                self.projection = keras.layers.Dense(
+                    self.neurons,
+                    kernel_regularizer=keras.regularizers.L2(self.l2),
+                    use_bias=False,
+                    name=f"{self.name}_projection"
+                )
         super().build(input_shape)
 
-    @tf.function(reduce_retracing=True)  
-    def call(self, inputs, batch_size=None, training=None):
-        """
-        Forward pass of the block.
-        
-        Args:
-            inputs (Tensor): Input tensor.
-            batch_size (int, optional): Batch size (unused, kept for compatibility). Default: None.
-            training (bool, optional): Whether in training mode (affects dropout and batch norm). Default: None.
-        
-        Returns:
-            Tensor: Output tensor after applying dense, batch norm, activation, dropout, and optional residual.
-        """
+    def call(self, inputs, training=None):
+        """Forward pass"""
         xx = self.dense(inputs)
         xx = self.batchnorm(xx, training=training)
         xx = self.activation(xx)
@@ -109,21 +83,26 @@ class MyBlock(layers.Layer):
 
         # Residual connection
         if self.use_residual:
+            residual = inputs
             if self.projection is not None:
-                inputs = self.projection(inputs)
-            xx = xx + inputs
+                residual = self.projection(inputs)
+            xx = xx + residual
+        
         return xx
 
     def get_config(self):
         config = super().get_config()
-        config['neurons'] = self.neurons
-        config['l2'] = self.l2
-        config['activation'] = self.activation_name
-        config['batch_norm'] = self.batch_norm_flag
-        config['dropout_rate'] = self.dropout_rate
-        config['use_residual'] = self.use_residual
+        config.update({
+            'neurons': self.neurons,
+            'l2': self.l2,
+            'activation': self.activation_name,
+            'batch_norm': self.batch_norm_flag,
+            'dropout_rate': self.dropout_rate,
+            'use_residual': self.use_residual,
+        })
         return config
 
+        
 @tf.keras.utils.register_keras_serializable()
 class MyModelNN(keras.Model):
     """
