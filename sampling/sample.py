@@ -648,7 +648,7 @@ if __name__ == "__main__":
 
     # Initialize logger
     logger = setup_logger(args.log_dir)
-    logger.info('Welcome to profiled NLL sampler by Rafal Maselek (https://orcid.org/0000-0002-5558-8249)')
+    logger.info('Welcome to NLL sampler by Rafal Maselek (https://orcid.org/0000-0002-5558-8249)')
     logger.info(f"Using log directory: {args.log_dir}")
 
     mp.set_start_method('spawn', force=True)
