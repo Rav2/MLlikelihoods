@@ -32,5 +32,6 @@ default_param_dict = {
 			            'cluster' : False,
                         'CR_center' : 'obs',
                         'VR_center' : 'obs',
+                        'sig_rel_unc' : 0.0,
                         }
 

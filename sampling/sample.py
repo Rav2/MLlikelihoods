@@ -76,9 +76,6 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
     global_param_dict = default_param_dict
 
     if os.path.isfile(param_file):
-        # with open(param_file, 'r') as f:
-        #     config = yaml.full_load_all(f,  Loader=IncludeLoader)
-        #     yaml_docs = [em for em in config]
         yaml_docs = load_yaml_with_includes(param_file)
 
         # consitency checks
@@ -425,6 +422,14 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     mes = f"Number of scans has to be at least 1, but {param_dict['processes']} is provided!"
                     logger.critical(mes)
                     raise ValueError(mes)
+                    
+                if param_dict['sig_rel_unc'] < 0:
+                    mes = f"Signal relative uncertainty cannot be negative! It is set to {param_dict['sig_rel_unc']}"
+                    logger.critical(mes)
+                    raise ValueError(mes)
+                elif param_dict['sig_rel_unc'] > 1.0:
+                    mes = f"Signal relative uncertainty set to {param_dict['sig_rel_unc']}! Please check this is intended!"
+                    logger.warning(mes)
 
                 ##############################
                 # determine limits of the scan
@@ -537,6 +542,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                         mu_bounds,
                                         seed=param_dict['seed'],
                                         remove_channels=param_dict['remove_channels'],
+                                        sig_rel_unc=param_dict['sig_rel_unc'],
                                         logger=logger
                                         )
                 #inputs = [(p, join(dirpath, f'table-{int(time.process_time_ns() - analysis_time ) + np.random.randint(1, 999)}.csv')) for p in p0s]

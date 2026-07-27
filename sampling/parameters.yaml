@@ -1,5 +1,5 @@
 ---
-analyses : ['2106.01676']
+analyses : ['1911.12606']
 input_folder : '../data/'
 output_folder : '../tables/'
 processes : 1
@@ -48,9 +48,9 @@ analysis : '1911.12606'
 include : cards/1911.12606.yaml
 scans : 1
 processes : 1
-points : 200
+points : 20
 buffer_size : 20
-low_lim_samples : 60
+low_lim_samples : 2 #60
 signal_leakage_CR_spread : 0.5
 signal_leakage_VR_spread : 0.5
 remove_channels :
@@ -64,6 +64,7 @@ cluster : True
 start_method : 'random'
 SR_sigma : 0.01
 CR_sigma : 0.01
+sig_rel_unc : 0.20
 ---
 analysis : '1908.08215'
 include : cards/1908.08215.yaml

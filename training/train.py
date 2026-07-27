@@ -384,52 +384,6 @@ def build_and_compile_model(parameters, columns, batch_size, train_size, delta_c
         raise
 
 
-# def train_model(model, train_scaled, val_scaled, batch_size, epochs, use_early_stopping=True, delta_count=4):
-#     """Train the model with optional early stopping."""
-#     try:
-#         callbacks = [LRLogger()]
-        
-#         if use_early_stopping:
-#             early_stop = tf.keras.callbacks.EarlyStopping(
-#                 monitor='loss',
-#                 patience=500,
-#                 restore_best_weights=True,
-#                 verbose=1
-#             )
-#             callbacks.append(early_stop)
-#             logging.info("✓ Early stopping enabled (patience=500, monitor=val_loss)")
-        
-#         logging.info(f"\nStarting training...")
-#         logging.info(f"  Epochs: {epochs}")
-#         logging.info(f"  Batch size: {batch_size}")
-#         logging.info(f"  Training samples: {len(train_scaled)}")
-#         logging.info(f"  Validation samples: {len(val_scaled)}\n")
-        
-#         history = model.fit(
-#             x=train_scaled.iloc[:, :-delta_count],
-#             y=train_scaled.iloc[:, -delta_count:],
-#             batch_size=batch_size,
-#             epochs=epochs,
-#             validation_data=(val_scaled.iloc[:, :-delta_count], val_scaled.iloc[:, -delta_count:]),
-#             use_multiprocessing=False,
-#             callbacks=callbacks,
-#             verbose=1
-#         )
-        
-#         logging.info("\n✓ Training completed")
-#         if use_early_stopping and len(history.history['loss']) < epochs:
-#             logging.info(f"  Early stopping triggered at epoch {len(history.history['loss'])}")
-#             logging.info(f"  Best model restored from epoch {len(history.history['loss']) - 500}")
-        
-#         return history
-#     except Exception as e:
-#         logging.error(f"Failed during training: {e}")
-#         raise
-#     finally:
-#         # Clean up memory
-#         gc.collect()
-
-
 def add_metadata_to_onnx(onnx_model, metadata_dict):
     """Add metadata properties to ONNX model."""
     for key, value in metadata_dict.items():

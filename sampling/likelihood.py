@@ -125,7 +125,8 @@ class NewStateWrapper():
 
 class LikelihoodCalculatorWrapper():
     # create a callable object that will keep information about the background and construct patches from the S yields
-    def __init__(self, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger):
+    def __init__(self, bkg_spec, channels_and_bins, central_values, output_file, buff_size, \
+                criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger):
         self._bkg_spec = bkg_spec
         self._channels_and_bins = channels_and_bins
         self._counter = 0
@@ -135,6 +136,7 @@ class LikelihoodCalculatorWrapper():
         self._criterion = criterion
         self._mu_bounds = mu_bounds
         self._remove_channels = [] if remove_channels is None else remove_channels
+        self._sig_rel_unc = sig_rel_unc
         self.logger = logger
         # write the first line with header names
         bin_no = 0
@@ -260,8 +262,48 @@ class LikelihoodCalculatorWrapper():
     def inject_signal(self, interpreter, S_yields):
         ii = 0
         for c, sr, b in self._channels_and_bins:
-            bin_vals = np.array(S_yields[ii:ii + b]) 
-            interpreter.inject_signal(c, bin_vals)
+            bin_vals = np.array(S_yields[ii:ii + b])
+            if abs(self._sig_rel_unc) > 1e-17:
+                modifiers=[
+                    {
+                        "name": "Wolfgang_unc",
+                        "type": "histosys",
+                        "data": {
+                            "hi_data": bin_vals * (1.0+self._sig_rel_unc), 
+                            "lo_data": [ float(np.max([0.0, bval*(1.0-self._sig_rel_unc)])) for bval in bin_vals]  
+                            },
+                    },
+                    {
+                        "data": None,
+                        "name": "lumi",
+                        "type": "lumi"
+                    },
+                    {
+                        "data": None,
+                        "name": "mu_SIG",
+                        "type": "normfactor"
+                    }
+                ]
+            else:
+                modifiers=[
+                    {
+                        "data": None,
+                        "name": "lumi",
+                        "type": "lumi"
+                    },
+                    {
+                        "data": None,
+                        "name": "mu_SIG",
+                        "type": "normfactor"
+                    }
+                ]
+
+            interpreter.inject_signal(
+                c,
+                bin_vals,
+                modifiers=modifiers,
+            )
+
             ii += b
         return interpreter  
 
@@ -290,9 +332,11 @@ class LikelihoodCalculatorWrapper():
         for channel_name in self._remove_channels:
             interpreter.remove_channel(channel_name)
 
+        new_patch = interpreter.make_patch()
+        # self.logger.warning(new_patch)
         statistical_model = self._stat_wrapper(
                                             background_only_model=interpreter.background_only_model,
-                                            signal_patch=interpreter.make_patch(),
+                                            signal_patch=new_patch,
                                         )
         statistical_model.backend.manager.backend = "tensorflow"
         nLL_exp_mu1 = statistical_model.likelihood(poi_test=1.0, expected='apriori')       
@@ -304,7 +348,6 @@ class LikelihoodCalculatorWrapper():
         nLLA_exp_mu1 = self.check_for_nan(nLLA_exp_mu1, 'nLLA_exp_mu1')
         nLLA_obs_mu1 = statistical_model.asimov_likelihood(poi_test=1.0, expected='observed')
         nLLA_obs_mu1 = self.check_for_nan(nLLA_obs_mu1, 'nLLA_obs_mu1')
-
         likelihoods_to_save = [self.nLL_exp_mu0, nLL_exp_mu1, self.nLL_obs_mu0, nLL_obs_mu1, \
                                 self.nLLA_exp_mu0, nLLA_exp_mu1, self.nLLA_obs_mu0, nLLA_obs_mu1]
         yields_to_save = list(np.array((self._central_values+S_yields))[self._mask])
@@ -331,9 +374,9 @@ class LikelihoodCalculatorWrapper():
     def get_counter(self):
         return self._counter
 
-def scan(p0, N, stds, minimalS_allowed, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger):
+def scan(p0, N, stds, minimalS_allowed, bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger):
     set_seeds(seed)
-    target_log_prob_fn = LikelihoodCalculatorWrapper(bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, logger) 
+    target_log_prob_fn = LikelihoodCalculatorWrapper(bkg_spec, channels_and_bins, central_values, output_file, buff_size, criterion, mu_bounds, seed, remove_channels, sig_rel_unc, logger) 
     new_state_fn_truncated = NewStateWrapper(stds, minimalS_allowed)   
     RandomWalkMH=tfp.mcmc.RandomWalkMetropolis(target_log_prob_fn, new_state_fn=new_state_fn_truncated, name=None)
     tfp.mcmc.sample_chain(
@@ -376,7 +419,7 @@ def calculate_sigmas(nSmin, nSmax, mask, SR_sigma, CR_sigma, VR_sigma, channels_
 
 
 class ScanWrapper():
-    def __init__(self, N,  bkg_spec, sigmas, channels_and_bins, central_values, buff_size, minimalS_allowed, criterion, mu_bounds, seed, remove_channels=None, logger=None):
+    def __init__(self, N,  bkg_spec, sigmas, channels_and_bins, central_values, buff_size, minimalS_allowed, criterion, mu_bounds, seed, remove_channels=None, sig_rel_unc=0.0, logger=None):
         self._N = N 
         self._bkg_spec = bkg_spec
         self._channels_and_bins = channels_and_bins
@@ -388,6 +431,7 @@ class ScanWrapper():
         self._mu_bounds = mu_bounds
         self._seed = seed
         self._remove_channels = remove_channels
+        self._sig_rel_unc = sig_rel_unc
         self.nLL_max = None
         if logger is None:
             self.logger = setup_logger()
@@ -411,7 +455,7 @@ class ScanWrapper():
         nLL_max = scan(p0, self._N, self._stds, self._minimalS_allowed, self._bkg_spec, \
             self._channels_and_bins, self._central_values, output_file, \
             self._buff_size, criterion, self._mu_bounds, self._seed, self._remove_channels, \
-            self.logger)
+            self._sig_rel_unc, self.logger)
         gc.collect()
         if self.nLL_max is None:
             self.nLL_max = nLL_max
