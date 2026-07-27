@@ -93,7 +93,7 @@ def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_l
                 if uncertainty_too_big[ii]:
                     bins_names.append(f"{c}-{b}")
                 ii += 1
-        logger.warning(f'Background uncertainty seems to large. I will clip it to 3√B for {bins_names}.')
+        logger.warning(f'Background uncertainty seems to large. For getting the scan limits, I will clip it to 3√B for {bins_names}.')
         deltaB[uncertainty_too_big] = 3*np.sqrt(B[uncertainty_too_big])
     
     # calculate upper and lower limits

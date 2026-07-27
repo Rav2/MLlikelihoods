@@ -37,8 +37,24 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # YAML parsing
 #
 def include_handler(data):
-    """
-    Handle the `include` key to load and unpack the referenced YAML file.
+    """Resolve an ``include`` key within a parsed YAML document.
+
+    If ``data`` is a dict containing an ``"include"`` key, the file it
+    points to is loaded as YAML and merged into ``data`` (with the
+    ``"include"`` key itself removed). Non-dict inputs are returned
+    unchanged.
+
+    Args:
+        data: A single parsed YAML document (typically a ``dict``), as
+            produced by ``yaml.load``/``yaml.full_load_all``.
+
+    Returns:
+        The input ``data``, with any ``include`` directive resolved and
+        merged in (if applicable). Non-dict inputs are returned as-is.
+
+    Raises:
+        FileNotFoundError: If the file referenced by ``include`` does not exist.
+        ValueError: If the included file does not contain a dictionary.
     """
     if not isinstance(data, dict):
         return data
@@ -57,8 +73,15 @@ def include_handler(data):
     return data
 
 def load_yaml_with_includes(file_path):
-    """
-    Load YAML documents, processing the `include` key for each document.
+    """Load all YAML documents from a file, resolving ``include`` directives.
+
+    Args:
+        file_path (str): Path to the YAML file to load. The file may
+            contain multiple ``---``-separated documents.
+
+    Returns:
+        list: The list of parsed YAML documents, each passed through
+        :func:`include_handler` to resolve any ``include`` key.
     """
     with open(file_path, 'r') as f:
         documents = yaml.full_load_all(f)  # Using FullLoader directly
@@ -68,8 +91,47 @@ def load_yaml_with_includes(file_path):
 # MAIN
 #
 def main(logger, param_file, starting_points_file, starting_points_file_index):
-    logger = logging.getLogger("main_logger")
+    """Drive the full likelihood-sampling pipeline for one or more analyses.
 
+    Loads and merges the YAML parameter file(s) (including any
+    ``include`` directives) into a global parameter dictionary, then for
+    each requested analysis: unpacks input archives if needed, loads the
+    background workspace and signal patchset, determines background
+    yields/uncertainties (either from the parameter file or by fitting),
+    determines observed yields, computes scan limits and the minimal
+    allowed (most negative) signal per bin, generates MCMC starting
+    points, and finally runs the parallel MCMC scan across signal
+    patches via :class:`likelihood.ScanWrapper`. Results are merged,
+    written to CSV, and accompanying metadata is saved as JSON in the
+    output directory for each analysis.
+
+    Args:
+        logger (logging.Logger): Logger instance; note that this
+            argument is immediately overwritten inside the function by
+            ``logging.getLogger("main_logger")``, so the caller's logger
+            configuration is only used indirectly (whatever handlers are
+            attached to the ``"main_logger"`` logger by the caller).
+        param_file (str): Path to the YAML parameter file describing the
+            analyses to sample and their configuration.
+        starting_points_file (str or None): Optional path to a CSV file
+            with pre-computed MCMC starting points to use instead of
+            generating new ones.
+        starting_points_file_index (int or None): Optional row index to
+            select from ``starting_points_file`` when it contains
+            multiple candidate starting points.
+
+    Raises:
+        ValueError: On malformed or missing YAML parameter documents, or
+            invalid parameter values (e.g. mismatched channel/bin counts,
+            non-positive scan/point/process counts, negative signal
+            relative uncertainty).
+        FileNotFoundError: If ``param_file`` is missing, or if an
+            ``include``-referenced YAML file cannot be found.
+        RuntimeError: If the parameter file cannot be parsed at all.
+        PermissionError: If the output directory for a given analysis
+            cannot be created due to insufficient permissions.
+    """
+    logger = logging.getLogger("main_logger")
     yaml_docs = None
     param_docs = []
     # default values of parameters
@@ -529,7 +591,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     json.dump(metadata, outfile)
                 del nSmin_orig
                 logger.info('Preparing the scan.')
-                sigmas = calculate_sigmas(nSmin, nSmax, mask, param_dict['SR_sigma'], param_dict['CR_sigma'], param_dict['VR_sigma'], channels_and_bins)
+                sigmas = calculate_sigmas(nSmin, nSmax, mask, param_dict['SR_sigma'], param_dict['CR_sigma'], param_dict['VR_sigma'], channels_and_bins, logger)
 
                 scan_wrapper = ScanWrapper(param_dict['points'],
                                         bkg_spec, 
@@ -586,6 +648,7 @@ if __name__ == "__main__":
 
     # Initialize logger
     logger = setup_logger(args.log_dir)
+    logger.info('Welcome to profiled NLL sampler by Rafal Maselek (https://orcid.org/0000-0002-5558-8249)')
     logger.info(f"Using log directory: {args.log_dir}")
 
     mp.set_start_method('spawn', force=True)
