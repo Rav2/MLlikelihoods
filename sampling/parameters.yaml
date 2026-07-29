@@ -64,7 +64,7 @@ cluster : True
 start_method : 'random'
 SR_sigma : 0.01
 CR_sigma : 0.01
-sig_rel_unc : 0.20
+sig_rel_unc : 0.22
 ---
 analysis : '1908.08215'
 include : cards/1908.08215.yaml

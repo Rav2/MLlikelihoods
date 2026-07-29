@@ -6,5 +6,9 @@ spey-pyhf
 pyyaml
 tensorflow-probability
 tqdm-loggable
-# tensorflow
+tensorflow
+pandas
+jax
+tensorflow
+tf_keras
 # numpy==1.26.4
