@@ -1,11 +1,8 @@
 # Ignore everything in data/ folder
 data/**
 
-# But keep specific .tar.gz files in data/
-!data/1908.08215.tar.gz
-!data/1911.06660.tar.gz
-!data/1912.08479.tar.gz
-!data/1909.09226.tar.gz
+# But keep  .tar.gz files in data/
+!data/*.tar.gz
 
 # Ignore auxiliary/ and validation/ folders in root
 /auxiliary/
