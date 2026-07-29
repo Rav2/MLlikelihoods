@@ -1,0 +1,10 @@
+colorama
+prettytable
+pyhf
+spey
+spey-pyhf
+pyyaml
+tensorflow-probability
+tqdm-loggable
+# tensorflow
+# numpy==1.26.4

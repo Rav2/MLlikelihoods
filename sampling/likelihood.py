@@ -11,8 +11,10 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import numpy as np
 from math import isinf, isnan
 from timeit import default_timer as timer
-import tensorflow as tf
-tf.keras.backend.clear_session()
+with_tf=False
+if with_tf:
+    import tensorflow as tf
+    tf.keras.backend.clear_session()
 import tensorflow_probability as tfp
 from misc import *
 import pyhf
@@ -38,7 +40,8 @@ def set_seeds(seed):
     """
     os.environ['PYTHONHASHSEED'] = str(seed)
     random.seed(seed)
-    tf.random.set_seed(seed)
+    if with_tf:
+        tf.random.set_seed(seed)
     np.random.seed(seed)
 
 
@@ -56,9 +59,10 @@ def set_global_determinism(seed):
     """
     os.environ['TF_DETERMINISTIC_OPS'] = '1'
     os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
-    tf.config.threading.set_inter_op_parallelism_threads(1)
-    tf.config.threading.set_intra_op_parallelism_threads(1)
-    tf.config.experimental.enable_op_determinism()
+    if with_tf:
+        tf.config.threading.set_inter_op_parallelism_threads(1)
+        tf.config.threading.set_intra_op_parallelism_threads(1)
+        tf.config.experimental.enable_op_determinism()
     set_seeds(seed=seed)
 
 

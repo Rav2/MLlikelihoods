@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 #
 # author: Rafal Maselek
 # e-mail: rafal.maselek@lpsc.in2p3.fr
