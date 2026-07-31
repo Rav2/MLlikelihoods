@@ -14,17 +14,20 @@ def collect ( case : str = "Sleptons" ):
     outfile = f"{case}.csv"
     first = True
     with open ( outfile, "wt" ) as out:
+        ct_l = 0
         for fname in files:
             with open ( fname, "rt" ) as f:
                 lines = f.readlines()
-                if len(lines)>1:
-                    print ( f"{fname}: {len(lines)-1} lines" )
+                #if len(lines)>1:
+                #    print ( f"{fname}: {len(lines)-1} lines" )
                 if first:
                     out.write ( clean ( lines[0] ) )
                     first = False
                 for line in lines[1:]:
                     out.write ( clean ( line ) )
+                    ct_l += 1
         out.close()
+        print ( f"{outfile}: {ct_l} lines" )
 
 def collectAll():
     cases = [ "Sleptons", "EWKinos" ]
