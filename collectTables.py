@@ -8,12 +8,17 @@ def clean ( line : str ) -> str:
 def collect ( case : str = "Sleptons" ):
     path = f"tables/*/*-{case}_*.csv"
     files = glob.glob ( path )
+    sm_case = "slep" if case == "Sleptons" else "chiwzoff"
+    sm_path = f"../smodels-utils/stats_ml/full_{sm_case}/T*.csv"
+    files += glob.glob ( sm_path )
     outfile = f"{case}.csv"
     first = True
     with open ( outfile, "wt" ) as out:
         for fname in files:
             with open ( fname, "rt" ) as f:
                 lines = f.readlines()
+                if len(lines)>1:
+                    print ( f"{fname}: {len(lines)-1} lines" )
                 if first:
                     out.write ( clean ( lines[0] ) )
                     first = False
