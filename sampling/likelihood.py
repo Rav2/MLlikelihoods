@@ -11,7 +11,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import numpy as np
 from math import isinf, isnan
 from timeit import default_timer as timer
-with_tf=False
+with_tf=True
 if with_tf:
     import tensorflow as tf
     tf.keras.backend.clear_session()
