@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import glob, time
+import glob, time, shutil, os
 
 def clean ( line : str ) -> str:
     return line.replace("+","")
@@ -10,7 +10,7 @@ def collect ( case : str = "Sleptons" ) -> int:
     files = glob.glob ( path )
     sm_case = "slep" if case == "Sleptons" else "chiwzoff"
     sm_path = f"../smodels-utils/stats_ml/full_{sm_case}/T*.csv"
-    files += glob.glob ( sm_path )
+    #files += glob.glob ( sm_path )
     outfile = f"{case}.csv"
     first = True
     ct_l = 0
@@ -31,7 +31,11 @@ def collect ( case : str = "Sleptons" ) -> int:
     return ct_l
 
 def log( n_lines : dict ):
-    with open ( f"collection.log", "wt" ) as f:
+    logfile = "collection.log"
+    if os.path.exists ( logfile ):
+        backup = "collection.backup"
+        shutil.copy ( logfile, backup )
+    with open ( logfile, "wt" ) as f:
         f.write ( "{\n" )
         f.write ( f"    'time': {time.asctime()},\n" )
         for k, v in n_lines.items():
