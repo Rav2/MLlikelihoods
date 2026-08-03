@@ -18,3 +18,5 @@ data/**
 training/log.txt
 sampling/log.txt
 sampling/logs/
+
+tables/*
