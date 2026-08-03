@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import glob, time, shutil, os, subprocess
+import glob, time, shutil, os, subprocess, sys
 
 def clean ( line : str ) -> str:
     return line.replace("+","")
@@ -8,28 +8,28 @@ def clean ( line : str ) -> str:
 def collect ( case : str = "Sleptons" ) -> int:
     path = f"tables/*/*-{case}_*.csv"
     files = glob.glob ( path )
+    n_rafal = len(files)
     sm_case = "slep" if case == "Sleptons" else "chiwzoff"
     sm_path = f"../smodels-utils/stats_ml/full_{sm_case}/T*.csv"
-    files_sms = glob.glob ( sm_path )
+    files += glob.glob ( sm_path )
     outfile = f"{case}.csv"
     first = True
     ct_l = 0
     with open ( outfile, "wt" ) as out:
-        for fname in files:
+        for i,fname in enumerate(files):
             with open ( fname, "rt" ) as f:
                 lines = f.readlines()
                 if first:
                     out.write ( clean ( lines[0] ) )
                     first = False
                 for line in lines[1:]:
+                    if "None" in line:
+                        continue
                     tokens = line.split(",")
-                    out.write ( clean ( line ) )
-                    ct_l += 1
-        for fname in files_sms:
-            with open ( fname, "rt" ) as f:
-                lines = f.readlines()
-                for line in lines[1:-1]:
-                    tokens = line.split(",")
+                    tokens = list ( map ( float, tokens ) )
+                    if i >= n_rafal and any(x>320 for x in tokens[-8:]):
+                        print ( "skipping:", max(tokens[-8:]) )
+                        continue
                     out.write ( clean ( line ) )
                     ct_l += 1
         out.close()
