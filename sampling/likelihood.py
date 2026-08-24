@@ -69,7 +69,7 @@ def set_global_determinism(seed):
 
 
 
-def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
+def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, probe_mask=None):
     """Find, for each bin, the most negative injectable signal that keeps the likelihood well-defined.
 
     Starting from a candidate lower bound on the signal yield per bin
@@ -96,6 +96,14 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
             and their number of bins, in the same order as ``nSmin``.
         logger (logging.Logger): Logger used to report progress and
             warnings when a stable lower limit cannot be found for a bin.
+        probe_mask (numpy.ndarray, optional): Boolean per-bin mask selecting
+            the bins to probe. Bins marked ``False`` - pinned bins, whose step
+            size is 0, and bins of removed channels, which never reach the
+            likelihood - keep their incoming ``nSmin`` and cost no model
+            evaluations. Skipping them matters beyond speed: the ``+1e-4``
+            safety margin applied to a probed bin would otherwise put a
+            positive floor under a bin that must hold exactly zero signal.
+            Defaults to probing every bin.
 
     Returns:
         numpy.ndarray: Array of the same shape as ``nSmin`` containing
@@ -108,11 +116,22 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
     up_lim = np.zeros(nSmin.shape, dtype=float)
     minimalS = np.zeros(nSmin.shape, dtype=float)
 
+    if probe_mask is None:
+        probe_mask = np.ones(nSmin.shape, dtype=bool)
+    else:
+        probe_mask = np.asarray(probe_mask, dtype=bool)
+        if probe_mask.shape != nSmin.shape:
+            mes = f'[ERROR] probe_mask has shape {probe_mask.shape} but {nSmin.shape} expected!'
+            logger.critical(mes)
+            raise ValueError(mes)
+    # bins that are not probed keep the limit they came in with
+    minimalS[~probe_mask] = nSmin[~probe_mask]
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        nbins = np.sum([em[2] for em in channels_and_bins])
+        nbins = int(np.sum(probe_mask))
         ii = 0
-        
+
         with progressbar(total=nbins*niter) as pbar:
             interpreter = WorkspaceInterpreter(bkg_spec)
             # iterate over all channels and bins
@@ -124,7 +143,11 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
                 inject_vals = np.zeros(bin_vals.shape)
                 # iterate over all bins in that channel
                 for bb in range(b):
-                    # optimise value of signal in the channel, start with mu=1   
+                    if not probe_mask[ii+bb]:
+                        # pinned or removed: leave inject_vals[bb] at 0 so this bin
+                        # contributes no signal while the other bins are probed
+                        continue
+                    # optimise value of signal in the channel, start with mu=1
                     mu = 1.0
                     mu_old = 1.0
                     mu_new = None

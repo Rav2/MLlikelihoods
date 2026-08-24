@@ -221,6 +221,50 @@ def test_fit_bkg_paths_defined():
         'fit_bkg branch does not build the *_ordered lists'
 
 
+def test_probe_mask_excludes_pinned_and_removed():
+    """Pinned bins and bins of removed channels must not be probed."""
+    import utils
+    cab = [('CRa_cuts', 'CR', 3), ('VRb_cuts', 'VR', 2), ('SRc_cuts', 'SR', 2), ('SRd_cuts', 'SR', 1)]
+    # signal leakage off in CRs and VRs -> those 5 bins are pinned
+    scan_mask = utils.get_mask(8, cab, True, False, False)
+    assert list(scan_mask) == [False]*5 + [True]*3, list(scan_mask)
+
+    probe = utils.get_probe_mask(scan_mask, cab, ['SRd_cuts'])
+    # 5 pinned + 1 removed SR bin -> only the 2 SRc bins get probed
+    assert list(probe) == [False]*5 + [True, True, False], list(probe)
+
+    # leakage on everywhere and nothing removed -> probe everything
+    all_on = utils.get_probe_mask(utils.get_mask(8, cab, True, True, True), cab, [])
+    assert all_on.all()
+    # must not alias or mutate the mask it was given
+    src = utils.get_mask(8, cab, True, True, True)
+    utils.get_probe_mask(src, cab, ['CRa_cuts'])
+    assert src.all(), 'get_probe_mask mutated the scan mask it was given'
+
+
+def test_find_min_S_keeps_unprobed_limits():
+    """Skipped bins must keep their incoming nSmin, not gain the +1e-4 margin."""
+    import likelihood, inspect
+    sig = inspect.signature(likelihood.find_min_S)
+    assert 'probe_mask' in sig.parameters, 'find_min_S has no probe_mask parameter'
+
+    src = inspect.getsource(likelihood.find_min_S)
+    assert 'minimalS[~probe_mask] = nSmin[~probe_mask]' in src, \
+        'unprobed bins do not inherit their incoming nSmin'
+    assert 'if not probe_mask[ii+bb]:' in src, 'the probing loop does not skip unprobed bins'
+    # the +1e-4 margin must SURVIVE for the bins that are actually probed
+    assert 'bin_vals[bb] * mu+1e-4' in src, 'the +1e-4 safety margin was removed from probed bins'
+
+
+def test_removal_resolved_before_find_min_S():
+    """remove_channels must be resolved before find_min_S so it can skip them."""
+    src = open('sample.py').read()
+    removal = src.index('# Prepare channels for removal')
+    probing = src.index('nSmin = find_min_S(')
+    assert removal < probing, 'channel removal is still resolved after find_min_S'
+    assert 'probe_mask=probe_mask' in src, 'find_min_S is not given the probe mask'
+
+
 def test_merge_results_roundtrip():
     import utils
     with tempfile.TemporaryDirectory() as d:

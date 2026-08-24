@@ -43,17 +43,23 @@ for d in sorted(glob.glob(os.path.join(root, '*-*'))):
     lower = {b: v for (b, _), v in zip(meta['bkg_yields'], meta['lower_limits'])}
     upper = {b: v for (b, _), v in zip(meta['bkg_yields'], meta['upper_limits'])}
     viol = []
-    # Tolerance note: find_min_S() probes with `bin_vals*mu + 1e-4` and keeps that
-    # value, so every recorded lower limit sits exactly 1e-4 above the true one.
-    # Sampled yields may therefore legitimately fall up to 1e-4 below the limit.
-    FIND_MIN_S_OFFSET = 1e-4
     for c in bin_cols:
         lo, hi = lower[c], upper[c]
         # MCMC proposals are truncated from below only; the upper edge can be
         # exceeded by a proposal, so only the hard lower bound is checked
-        if (df[c] < lo - FIND_MIN_S_OFFSET - 1e-6).any():
-            viol.append(f'{c} < {lo}')
-    report('yields respect the lower scan limits (±1e-4)', not viol, str(viol[:3]))
+        if (df[c] < lo - 1e-6).any():
+            viol.append(f'{c} < {lo} (min {df[c].min()})')
+    report('yields respect the lower scan limits', not viol, str(viol[:3]))
+
+    # A pinned bin (signal leakage off for its region) is never varied, so it has
+    # to sit EXACTLY on its central value in every row. The +1e-4 probe offset in
+    # find_min_S used to break this before pinned bins were skipped there.
+    leak = {'CR': meta['signal_leakage_CR'], 'VR': meta['signal_leakage_VR']}
+    pinned = [c for c in bin_cols
+              if c[:2] in leak and not leak[c[:2]]]
+    if pinned:
+        bad = {c: [float(v) for v in sorted(df[c].unique())[:3]] for c in pinned if df[c].nunique() != 1}
+        report(f'{len(pinned)} pinned bins are exactly constant', not bad, str(bad))
 
     report('mu0 likelihood constant within a scan',
            all(df[c].nunique() <= meta['scans'] + 1 for c in ['nLL_exp_mu0', 'nLL_obs_mu0']))

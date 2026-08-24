@@ -567,8 +567,45 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                                                 )
                 nSobs = get_obs_signal(bkg_yields, obs_yields)
                 nSmin_orig = copy.deepcopy(nSmin)
+
+                ##############################
+                # Prepare channels for removal
+                ##############################
+                # resolved BEFORE find_min_S, so bins belonging to removed channels
+                # can be skipped there instead of being probed and then discarded
+                if param_dict['removeCRsVRs']:
+                    if (param_dict['signal_leakage_CR'] or param_dict['signal_leakage_VR']):
+                        mes = f"Asked to remove CRs/VRs but signal leakage enabled! I don't know what to do so I abort!"
+                        logger.critical(mes)
+                        raise ValueError(mes)
+                    elif param_dict['remove_channels'] is None:
+                        channels_to_be_removed = []
+                        for c, sr, b in channels_and_bins:
+                            if sr != 'SR':
+                                channels_to_be_removed.append(c)
+                        param_dict['remove_channels'] = channels_to_be_removed
+                        del channels_to_be_removed
+                    else:
+                        for c, sr, b in channels_and_bins:
+                            if sr != 'SR':
+                                param_dict['remove_channels'] =  param_dict['remove_channels'] + [c]
+                # check if the channels to be removed are available
+                param_dict['remove_channels'] = [c for c in param_dict['remove_channels'] if c in channels]
+                for channel_name in param_dict['remove_channels']:
+                    logger.warning(f'Removing channel: {channel_name}')
+
+                # Only bins that the sampler will actually vary need a probed lower
+                # limit. A pinned bin (signal leakage off -> sigma 0) never moves off
+                # its central value, and a removed bin is dropped from the model
+                # before the likelihood is evaluated, so probing either one only buys
+                # the +1e-4 safety margin a bin that stays at zero must not get.
+                probe_mask = get_probe_mask(mask, channels_and_bins, param_dict['remove_channels'])
+                n_skipped = int(np.sum(~probe_mask))
+                if n_skipped:
+                    logger.info(f'Skipping {n_skipped} pinned/removed bins when setting the lower limit on S.')
                 logger.info(f"Setting the absolute lower limit on S ...")
-                nSmin = find_min_S(param_dict['low_lim_samples'], bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger)
+                nSmin = find_min_S(param_dict['low_lim_samples'], bkg_spec, stat_wrapper, nSmin,
+                                   channels_and_bins, logger, probe_mask=probe_mask)
                 print_limit_table(bins_names, nSmin, nSmax, central_values, logger)
                 # find mu_SIG limits for max likelihood calculation
                 mu_min, mu_max = find_mu_limits(nSmin, nSmax, central_values, logger)
@@ -597,31 +634,6 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 #     if len(p0s) > 1:
                 #         raise NotImplementedError(f'Expected a single starting point from file, but encountered {len(p0s)}.')
                 #     p0s[0] = p0s[0] - central_values
-
-                ##############################
-                # Prepare channels for removal
-                ##############################
-                if param_dict['removeCRsVRs']:
-                    if (param_dict['signal_leakage_CR'] or param_dict['signal_leakage_VR']):
-                        mes = f"Asked to remove CRs/VRs but signal leakage enabled! I don't know what to do so I abort!"
-                        logger.critical(mes)
-                        raise ValueError(mes)
-                    elif param_dict['remove_channels'] is None:
-                        channels_to_be_removed = []
-                        for c, sr, b in channels_and_bins:
-                            if sr != 'SR':
-                                channels_to_be_removed.append(c)
-                        param_dict['remove_channels'] = channels_to_be_removed
-                        del channels_to_be_removed
-                    else:
-                        for c, sr, b in channels_and_bins:
-                            if sr != 'SR':
-                                param_dict['remove_channels'] =  param_dict['remove_channels'] + [c]
-                # check if the channels to be removed are available
-                param_dict['remove_channels'] = [c for c in param_dict['remove_channels'] if c in channels]                
-                for channel_name in param_dict['remove_channels']:
-                    logger.warning(f'Removing channel: {channel_name}')
-
 
                 ####################
                 ######  SCAN  ######

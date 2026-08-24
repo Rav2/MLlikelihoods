@@ -94,6 +94,42 @@ def get_mask(shape, channels_and_bins, scan_SRs, scan_CRs, scan_VRs):
     return mask 
 
 
+def get_probe_mask(scan_mask, channels_and_bins, remove_channels):
+    """Return the bins whose lower limit on S actually needs to be probed.
+
+    A bin is worth probing only if the sampler will vary it. Two kinds are
+    excluded:
+
+    * **pinned** bins - signal leakage is disabled for their region, so
+      :func:`~likelihood.calculate_sigmas` gives them a step size of 0 and
+      they stay at their central value for the whole chain;
+    * **removed** bins - their channel is dropped from the model before the
+      likelihood is evaluated, so whatever is injected there is discarded.
+
+    Both keep their incoming ``nSmin`` (essentially zero) instead of the
+    probed ``nSmin + 1e-4``, which would otherwise put a positive floor under
+    a bin that must hold exactly zero signal.
+
+    Args:
+        scan_mask (numpy.ndarray): Boolean per-bin mask from :func:`get_mask`;
+            ``False`` marks a pinned bin.
+        channels_and_bins (list[tuple]): ``(channel_name, channel_type, n_bins)``
+            tuples describing the channel layout.
+        remove_channels (list[str] or None): Channels dropped from the fit.
+
+    Returns:
+        numpy.ndarray: Boolean mask, ``True`` for bins that should be probed.
+    """
+    probe_mask = np.array(scan_mask, dtype=bool, copy=True)
+    if remove_channels:
+        bin_offset = 0
+        for c, t, b in channels_and_bins:
+            if c in remove_channels:
+                probe_mask[bin_offset:bin_offset + b] = False
+            bin_offset += b
+    return probe_mask
+
+
 def print_yield_table(bins_names, bins_is_signal, bkg_yields, bkg_unc, obs_yields, logger):
     logger.info('Yields:')
     table = PrettyTable()
