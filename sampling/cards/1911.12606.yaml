@@ -4,9 +4,9 @@ bkgfiles :
     - Sleptons_bkgonly.json
     - Smuons_bkgonly.json
 patchsets : 
-    - [EWKinos_patchset.json, True]
+    - [EWKinos_patchset.json, False]
     - [Selectrons_patchset.json, False]
-    - [Sleptons_patchset.json, False]
+    - [Sleptons_patchset.json, True]
     - [Smuons_patchset.json, False]
 channels :
     - CRVV_MLL_hghmet_cuts : 'CR'
