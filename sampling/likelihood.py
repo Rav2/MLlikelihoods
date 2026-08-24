@@ -25,6 +25,12 @@ import random
 import gc
 
 
+#: Criteria that name a single likelihood directly.
+EXPLICIT_CRITERIA = ('nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1')
+#: Every criterion accepted by :class:`ScanWrapper` ('mu1' picks one of the
+#: nLL_*_mu1 criteria at random for each scan).
+VALID_CRITERIA = EXPLICIT_CRITERIA + ('mu1',)
+
 
 def set_seeds(seed):
     """Seed all relevant random number generators for reproducibility.
@@ -255,6 +261,11 @@ class LikelihoodCalculatorWrapper():
         self._buff_size = buff_size
         self._central_values = central_values
         self._criterion = criterion
+        if self._criterion not in EXPLICIT_CRITERIA:
+            mes = f'[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper: {self._criterion}! ' \
+                  f'Expected one of {EXPLICIT_CRITERIA}.'
+            logger.critical(mes)
+            raise ValueError(mes)
         self._mu_bounds = mu_bounds
         self._remove_channels = [] if remove_channels is None else remove_channels
         self._sig_rel_unc = sig_rel_unc
@@ -278,13 +289,21 @@ class LikelihoodCalculatorWrapper():
 
         self._bin_no = bin_no
         # handle the removed channels
-        self._mask = np.ones(shape=self._bin_no, dtype=bool)
-        cc = 0
+        # NOTE: the mask is indexed by BIN, not by channel, so every bin of a
+        # removed channel has to be switched off (channels may hold >1 bin).
+        self._mask = np.ones(shape=bin_no, dtype=bool)
+        bin_offset = 0
         for c, sr, b in channels_and_bins:
             if c in self._remove_channels:
                 self._bin_no = self._bin_no - b
-                self._mask[cc] = False
-            cc += 1
+                self._mask[bin_offset:bin_offset + b] = False
+            bin_offset += b
+
+        if int(np.sum(self._mask)) != self._bin_no:
+            mes = f'[ERROR] Bin bookkeeping mismatch after removing channels: ' \
+                  f'mask keeps {int(np.sum(self._mask))} bins but {self._bin_no} expected!'
+            self.logger.critical(mes)
+            raise ValueError(mes)
 
         self._results = np.empty(shape=(self._buff_size, self._bin_no+8), dtype=float)
         self.nLL_exp_mu0 = None
@@ -497,19 +516,24 @@ class LikelihoodCalculatorWrapper():
         self.clear_buffer()
 
     def check_for_nan(self, likelihood, name):
-        """Sanitize a likelihood value, substituting a large finite value for NaN.
+        """Sanitize a likelihood value, substituting a large finite value for NaN/inf.
 
         Args:
             likelihood (float): Likelihood value to check.
             name (str): Human-readable name of the quantity, used in the
-                logged error message if ``likelihood`` is NaN.
+                logged error message if ``likelihood`` is not finite.
 
         Returns:
-            float: ``likelihood`` unchanged, or ``1e10`` if it was NaN.
+            float: ``likelihood`` unchanged, or ``1e10`` if it was NaN or
+            infinite (``-inf`` is mapped to ``-1e10``).
         """
         if isnan(likelihood):
             self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +1e10')
             return np.float64(1e10)
+        elif isinf(likelihood):
+            replacement = np.float64(-1e10) if likelihood < 0 else np.float64(1e10)
+            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as {replacement:+.0e}')
+            return replacement
         else:
             return likelihood
     
@@ -582,10 +606,9 @@ class LikelihoodCalculatorWrapper():
         elif self._criterion == 'LL_exp_mu1':
             return nLL_exp_mu1
         else:
-            mes = '[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper.'
+            mes = f'[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper: {self._criterion}!'
             self.logger.critical(mes)
             raise ValueError(mes)
-        del nLL_exp_mu1, nLL_obs_mu1, nLLA_exp_mu1, nLLA_obs_mu1,
 
     def get_counter(self):
         """Return the number of results currently held in the in-memory buffer.
@@ -757,6 +780,12 @@ class ScanWrapper():
         self._buff_size = buff_size
         self._minimalS_allowed = minimalS_allowed
         self._criterion = criterion
+        if self._criterion not in VALID_CRITERIA:
+            mes = f'[ERROR] Wrong criterion passed to ScanWrapper: {self._criterion}! ' \
+                  f'Expected one of {VALID_CRITERIA}.'
+            if logger is not None:
+                logger.critical(mes)
+            raise ValueError(mes)
         self._stds = sigmas
         self._central_values = central_values
         self._mu_bounds = mu_bounds
@@ -796,12 +825,14 @@ class ScanWrapper():
         """
         set_seeds(self._seed)
         p0, output_file = dat
-        if self._criterion in ['nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1']:
+        if self._criterion in EXPLICIT_CRITERIA:
             criterion = self._criterion
         elif self._criterion == 'mu1':
-            criterion = np.random.choice(['nLL_exp_mu1', 'nLL_obs_mu1'], 1)
+            # str(), because np.random.choice returns a numpy array/str, and the
+            # criterion is later compared against plain Python strings.
+            criterion = str(np.random.choice(['nLL_exp_mu1', 'nLL_obs_mu1']))
         else:
-            mes = '[ERROR] Wrong criterion passed to ScanWrapper.'
+            mes = f'[ERROR] Wrong criterion passed to ScanWrapper: {self._criterion}!'
             self.logger.critical(mes)
             raise ValueError(mes)
 

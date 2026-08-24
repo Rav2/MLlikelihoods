@@ -5,7 +5,7 @@ patchsets :
     - [dummy.json, True]
     
 channels:
-  CR1L1b_1000_cuts: 'CR'
+- CR1L1b_1000_cuts: 'CR'
   CR1L1b_1100_cuts: 'CR'
   CR1L1b_1200_cuts: 'CR'
   CR1L1b_200_cuts: 'CR'

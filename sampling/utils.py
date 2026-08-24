@@ -18,6 +18,70 @@ def get2nd(arr):
     return np.array([b for a,b in arr])
 
 
+#: Keys that are legal in a parameter document but are not scan parameters,
+#: so they do not appear in ``default_param_dict``.
+STRUCTURAL_PARAM_KEYS = frozenset({
+    'analysis',     # name of the analysis described by this document
+    'name',         # alternative spelling used by single-analysis files
+    'include',      # resolved (and removed) while loading the YAML
+    'bkgfiles',     # provided by the analysis card
+    'patchsets',    # provided by the analysis card
+    'channels',     # provided by the analysis card
+    'seed',         # optional, otherwise derived from the clock
+    'merged',       # metadata flag added by the sampler itself
+})
+
+
+def correlated_background_keys():
+    """Return the accepted spellings of spey's correlated-background pdf key.
+
+    spey renamed the simplified-likelihood conversion keys after 0.2.5
+    (``default_pdf.correlated_background`` -> ``default.correlated_background``).
+    The name matching the installed version comes first.
+
+    Returns:
+        list[str]: Candidate ``convert_to`` keys, most likely first.
+    """
+    old_key, new_key = 'default_pdf.correlated_background', 'default.correlated_background'
+    try:
+        import spey
+        version = tuple(int(part) for part in str(spey.__version__).split('.')[:3])
+    except Exception:
+        return [old_key, new_key]
+    return [old_key, new_key] if version <= (0, 2, 5) else [new_key, old_key]
+
+
+def check_unknown_parameters(param_docs, logger):
+    """Warn about parameter keys that the sampler does not recognise.
+
+    A mistyped key (``SR_sigma'``, ``scan`` instead of ``scans``, ...) is
+    silently ignored by the rest of the code, so the run quietly uses the
+    default value instead. This walks every parameter document and reports
+    anything that is neither a known scan parameter nor a structural key.
+
+    Args:
+        param_docs (list[dict]): Parameter documents to check (the merged
+            global settings followed by the per-analysis documents).
+        logger (logging.Logger): Logger used to emit the warnings.
+
+    Returns:
+        list[str]: The sorted list of unrecognised keys that were found.
+    """
+    from default_params import default_param_dict
+
+    known = set(default_param_dict.keys()) | STRUCTURAL_PARAM_KEYS
+    unknown = set()
+    for doc in param_docs:
+        if not isinstance(doc, dict):
+            continue
+        label = doc.get('analysis') or doc.get('name') or 'global settings'
+        for key in doc.keys():
+            if key not in known:
+                unknown.add(key)
+                logger.warning(f"Unknown parameter '{key}' in [{label}] - it will be IGNORED. Check for a typo.")
+    return sorted(unknown)
+
+
 def get_mask(shape, channels_and_bins, scan_SRs, scan_CRs, scan_VRs):
     mask = np.empty(shape, dtype=bool)
     ii = 0
@@ -61,16 +125,27 @@ def get_time_string(ns_t):
     return f"{h_t} hours {left_m} minutes {left_s} seconds"
 
 def get_obs_signal(bkg_yields, obs_yields):
+    """Return the observed-minus-expected yields, bin by bin.
+
+    Args:
+        bkg_yields (list[tuple]): ``(bin_name, value)`` pairs of background yields.
+        obs_yields (list[tuple]): ``(bin_name, value)`` pairs of observed yields.
+
+    Returns:
+        list[tuple]: ``(bin_name, [obs - bkg, ...])`` pairs, in the order of
+        ``bkg_yields``.
+    """
     obs_signal_yields = []
     for bkg_name, bkg_values in bkg_yields:
         for obs_name, obs_values in obs_yields:
             if obs_name == bkg_name:
-                if type(obs_values) != type(list()):
+                if not isinstance(obs_values, list):
                     obs_values = [obs_values]
                     bkg_values = [bkg_values]
                 entry = (obs_name, [ a-b for a,b in zip(obs_values,bkg_values) ] )
                 obs_signal_yields.append(entry)
                 break
+    return obs_signal_yields
 
 def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_leakage_CR, signal_leakage_VR, CRs_scan_spread, VRs_scan_spread, CR_scan_sign, VR_scan_sign, CR_center_type, VR_center_type, logger):
     B, deltaB, obs = get2nd(bkg_yields), get2nd(bkg_unc), get2nd(obs_yields)
@@ -86,14 +161,8 @@ def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_l
     uncertainty_too_big = deltaB > 3 * np.sqrt(B)
     all_bins_names = [f"{c}-{b}" for c, _, binN in channels_and_bins for b in range(binN) ]
     if np.sum(uncertainty_too_big) > 0:
-        bins_names = []
-        ii = 0
-        for c, t, b in channels_and_bins:
-            for bb in range(b):
-                if uncertainty_too_big[ii]:
-                    bins_names.append(f"{c}-{b}")
-                ii += 1
-        logger.warning(f'Background uncertainty seems to large. For getting the scan limits, I will clip it to 3√B for {bins_names}.')
+        bins_names = [name for name, too_big in zip(all_bins_names, uncertainty_too_big) if too_big]
+        logger.warning(f'Background uncertainty seems too large. For getting the scan limits, I will clip it to 3√B for {bins_names}.')
         deltaB[uncertainty_too_big] = 3*np.sqrt(B[uncertainty_too_big])
     
     # calculate upper and lower limits
@@ -119,7 +188,10 @@ def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_l
             logger.warning('Fluctuations in the CRs are too small to account for the difference between expected and observed yields!')
             low_index = np.argmin(fluctuations)
             low_fluct_val = np.abs(nSobs_abs[CRmask][low_index]/obs[CRmask][low_index]) if obs[CRmask][low_index] > 0.0 else 0.0
-            logger.warning(f'Consider increasing the "signal_leakage_CR_spread" to at least {low_fluct_val} (based on {all_bins_names[low_index]}).')
+            # low_index indexes the CR-masked arrays, so the name has to be looked
+            # up in the CR-masked list of bin names, not in the full one.
+            CR_bins_names = [name for name, keep in zip(all_bins_names, CRmask) if keep]
+            logger.warning(f'Consider increasing the "signal_leakage_CR_spread" to at least {low_fluct_val} (based on {CR_bins_names[low_index]}).')
         # set the limits
         if CR_scan_sign == 'both':
             nsMax[CRmask] = deltaS_CR
@@ -154,7 +226,10 @@ def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_l
             logger.warning('Fluctuations in the VRs are too small to account for the difference between expected and observed yields!')
             low_index = np.argmin(fluctuations)
             low_fluct_val = np.abs(nSobs_abs[VRmask][low_index]/obs[VRmask][low_index]) if obs[VRmask][low_index] > 0.0 else 0.0
-            logger.warning(f'Consider increasing the "signal_leakage_VR_spread" to at least {low_fluct_val} (based on {all_bins_names[low_index]}).')
+            # low_index indexes the VR-masked arrays, so the name has to be looked
+            # up in the VR-masked list of bin names, not in the full one.
+            VR_bins_names = [name for name, keep in zip(all_bins_names, VRmask) if keep]
+            logger.warning(f'Consider increasing the "signal_leakage_VR_spread" to at least {low_fluct_val} (based on {VR_bins_names[low_index]}).')
         # set the limits
         if VR_scan_sign == 'both':
             nsMax[VRmask] = deltaS_VR
@@ -285,8 +360,9 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
 
     elif start_method == 'default':
         points = np.array([list(nsMin), list(nsMax), np.zeros(nsMin.shape)]) #nsMin is negative!
+        points[:, ~mask] = 0.0 # do not start off-centre in regions that are not scanned
         if n > 3:
-            random_points = populate_randomly(n-3, mask)
+            random_points = populate_randomly(n-3, mask, nsMin, nsMax)
             points = np.concatenate([points, random_points], axis=0)
             assert len(points) == n
             return points
@@ -301,7 +377,8 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
         assert len(points) == n
         return points 
     elif start_method == 'edges':
-        maxiter = np.min([n, 2**len(nsMin)])
+        # plain min(), so the 2**nbins term does not overflow numpy's integer types
+        maxiter = min(n, 2**len(nsMin))
         types_of_channels = set([ em[1] for em in channels_and_bins])
         if 'SR' not in types_of_channels:
             mes =  f'[ERROR] No signal regions provided! ({types_of_channels})'
@@ -309,11 +386,12 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
             raise ValueError(mes)
         else:
             edge_points = populate_with_edges(maxiter, mask, nsMin, nsMax)
-            if n < maxiter:
-                assert len(edge_points) == n 
+            if n <= maxiter:
+                assert len(edge_points) == n
                 return edge_points
             else:
-                generate_n = maxiter-n
+                # more points requested than distinct edges available: top up with random ones
+                generate_n = n - maxiter
                 random_points = populate_randomly(generate_n, mask, nsMin, nsMax)
                 points = np.concatenate([edge_points, random_points], axis=0)
                 assert len(points) == n
@@ -321,7 +399,8 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
     else:
         mes =  f"[ERROR] Wrong start method ({start_method}). I will use the 'default' option."
         logger.error(mes)
-        return generate_starting_points(nsMin, nsMax, n, start_method='default', SRs=SRs, scan_CRs=scan_CRs)
+        return generate_starting_points(nsMin, nsMax, central_values, mask, n=n, start_method='default',
+                                        channels_and_bins=channels_and_bins, logger=logger)
 
 
 def merge_results(infiles, keep_files=True, suffix='', logger=None):

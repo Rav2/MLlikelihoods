@@ -135,7 +135,9 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
     yaml_docs = None
     param_docs = []
     # default values of parameters
-    global_param_dict = default_param_dict
+    # deepcopy: otherwise every assignment below would mutate the module-level
+    # default_param_dict and leak into any later call of main()
+    global_param_dict = copy.deepcopy(default_param_dict)
 
     if os.path.isfile(param_file):
         yaml_docs = load_yaml_with_includes(param_file)
@@ -159,10 +161,13 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
         else:
             if yaml_docs[0].get('analyses') is None:
                 logger.warning('List of analyses not provided! I will scan all available.')
+                global_param_dict['analyses'] = 'all'
             else:
                 for k,v in yaml_docs[0].items():
                     global_param_dict[k] = v
-                param_docs = yaml_docs[1:]
+            # the first document always holds the global settings; the remaining
+            # ones describe the individual analyses
+            param_docs = yaml_docs[1:]
     else:
         mes = 'Parameter file "parameters.yaml" is missing!'
         logger.critical(mes)
@@ -173,15 +178,26 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
         raise RuntimeError(mes)
 
     del yaml_docs
+
+    # Warn about keys the code never reads. Silent typos (e.g. "SR_sigma'" or
+    # "scan") used to make settings vanish without a trace.
+    check_unknown_parameters([global_param_dict] + param_docs, logger)
+
     spey.set_log_level(global_param_dict['spey_verbose_lvl'])
-    logger.info(f'Param file loaded. {len(global_param_dict["analyses"])} analyses to be sampled.')    
-    if len(list(set(global_param_dict['analyses']))) > len(param_docs):
-        logger.warning(f'The list of analyses to sample is longer than the list of parameter documents!')
-    
+    if global_param_dict['analyses'] == 'all':
+        logger.info(f'Param file loaded. All {len(param_docs)} analyses in the file will be sampled.')
+    else:
+        logger.info(f'Param file loaded. {len(global_param_dict["analyses"])} analyses to be sampled.')
+        if len(list(set(global_param_dict['analyses']))) > len(param_docs):
+            logger.warning(f'The list of analyses to sample is longer than the list of parameter documents!')
+
+
     #############################################
     # create a directory for likelihood tables
     #############################################
-    tables_dir = "../tables"
+    # honour output_folder instead of always creating ../tables: pointing the
+    # parameter file somewhere else used to still create an empty ../tables
+    tables_dir = global_param_dict['output_folder']
     if not os.path.exists(tables_dir):
         os.makedirs(tables_dir, exist_ok=True)
         logger.info('Created parent directory for likelihood tables.')
@@ -192,8 +208,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
     # loop over the analyses
     #########################
     global_param_dict['merged'] = False # add metadata with info about the post-sampling merging of results
-    for ii in range(len(param_docs)):
-        analysis = param_docs[ii]
+    for analysis_index in range(len(param_docs)):
+        analysis = param_docs[analysis_index]
         param_dict = copy.deepcopy(global_param_dict)
         for k,v in analysis.items():
             param_dict[k] = v
@@ -202,7 +218,10 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
             ###############################
             # sample the selected analysis
             ###############################
-            analysis_time = time.process_time_ns()
+            # wall-clock, not process CPU time: the scan runs in a multiprocessing
+            # pool, so time.process_time() only sees this process and badly
+            # under-reports both the total and the seconds-per-point figure.
+            analysis_time = time.perf_counter_ns()
             logger.info(f'Working on analysis {name}.')
             # check for the input folder and unpack the archive if needed
             input_folder = join(param_dict['input_folder'], name)
@@ -235,17 +254,17 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
             set_global_determinism(seed=param_dict['seed'])
 
             try:
-                ii = 0
+                dir_index = 0
                 while True:
-                    if not param_dict['cluster']: 
-                        dirpath = join(param_dict['output_folder'], "{}-{}".format(name, ii) )
+                    if not param_dict['cluster']:
+                        dirpath = join(param_dict['output_folder'], "{}-{}".format(name, dir_index) )
                     else:
-                        dirpath = join(param_dict['output_folder'], "{}-{}-{}".format(name, ii, slurm_task_id) )  
-                    
+                        dirpath = join(param_dict['output_folder'], "{}-{}-{}".format(name, dir_index, slurm_task_id) )
+
                     if not os.path.isdir(dirpath):
                         break
                     else:
-                        ii += 1
+                        dir_index += 1
                 os.makedirs(dirpath)
                 logger.info('Created directory for likelihood tables.')
             except PermissionError:
@@ -302,6 +321,9 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     raise TypeError(mes)
 
 
+                # restart the clock for every (background, patchset) pair, so the
+                # timing reported at the end of the pair covers that pair only
+                analysis_time = time.perf_counter_ns()
                 logger.info(f"Analysing {basename(bkgfile)} and {basename(patchset_path)} files [{file_pair_index+1}/{len(bkgfiles)}].")
                 suffix = basename(bkgfile).split('.')[0]+'-'+basename(patchset_path).split('.')[0]
 
@@ -355,8 +377,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 channels_and_bins = []
                 for k,v in model_bkg.config.channel_nbins.items():
                     channels_and_bins.append((k, channels[k], v))
-                    for ii in range(v):
-                        bins_names.append(k+'-{}'.format(ii))
+                    for bin_index in range(v):
+                        bins_names.append(k+'-{}'.format(bin_index))
                         bins_is_signal.append(k in SRs)
                 bins_is_signal = np.array(bins_is_signal)
                 bkg_yields = list(zip(bins_names, data_bkg[:len(bins_is_signal)]))
@@ -367,24 +389,31 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 del data_bkg
                 del model_bkg
 
+                # Create bin names in the YAML file's channel ordering. This is needed by
+                # BOTH the 'read from file' and the 'fit' branches below (the printed tables
+                # and the observed yields follow the user's ordering), so it lives here.
+                input_bins_ordered = []
+                bins_is_signal_ordered = []
+                for ch_name in channels.keys():
+                    n_bins = channel_nbins.get(ch_name)
+                    if n_bins is None:
+                        logger.warning(f"Channel {ch_name} from input file not found in model")
+                        continue
+                    for bin_index in range(n_bins):
+                        input_bins_ordered.append(f'{ch_name}-{bin_index}')
+                        bins_is_signal_ordered.append(ch_name in SRs)
+
                 if not param_dict['fit_bkg']:
                     logger.info(f"Loading background yields and uncertainties from the file.")
                     file_data_bkg = param_dict['bkg_yields'][file_pair_index]
                     file_data_bkg_unc = param_dict['bkg_unc'][file_pair_index]
-                    
-                    # Create bin names in YAML file's channel ordering
-                    input_bins_ordered = []
-                    bins_is_signal_ordered = []
 
-                    for ch_name in channels.keys():
-                        n_bins = channel_nbins.get(ch_name)
-                        if n_bins is None:
-                            logger.warning(f"Channel {ch_name} from input file not found in model")
-                            continue
-                        for ii in range(n_bins):
-                            input_bins_ordered.append(f'{ch_name}-{ii}')
-                            bins_is_signal_ordered.append(ch_name in SRs)
-                    
+                    if file_data_bkg is None or file_data_bkg_unc is None:
+                        mes = "'fit_bkg' is disabled but 'bkg_yields'/'bkg_unc' are missing from the parameter file! " \
+                              "Provide them in the analysis card or set 'fit_bkg : True'."
+                        logger.critical(mes)
+                        raise ValueError(mes)
+
                     # Validate lengths
                     if len(input_bins_ordered) != len(file_data_bkg) or len(input_bins_ordered) != len(file_data_bkg_unc):
                         mes = f'There is a mismatch between the number of recognised bins ({len(input_bins_ordered)}), ' \
@@ -423,16 +452,21 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                     logger.info(f"Estimating background uncertainty ...")
 
                     n_bkg_unc = param_dict['bkg_unc_samples']
+                    # spey renamed the simplified-pdf keys after 0.2.5
+                    # ('default_pdf.*' -> 'default.*'), so keep both spellings and
+                    # fall through to the other one if this install rejects the first
+                    convert_to_candidates = correlated_background_keys()
                     # control_region_indices=[val for val in list(interpreter.channels) if not val in SRs]
                     # this might fail so we make a loop
+                    simplified_background_model = None
                     for trial in range(3):
                         try:
                             simplified_background_model = converter(
                                                     statistical_model=full_background_model,
-                                                    convert_to="default_pdf.correlated_background",
+                                                    convert_to=convert_to_candidates[0],
                                                     control_region_indices=list(interpreter.channels), #control_region_indices,
                                                     number_of_samples=n_bkg_unc,
-                                                    
+
                                                 )
                             break
                         except LinAlgError as e:
@@ -443,11 +477,29 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                             else:
                                 mes = f'Trying again...'
                                 logger.warning(mes)
+                        except Exception as e:
+                            # unknown conversion key -> this spey version uses the other spelling
+                            if len(convert_to_candidates) > 1 and 'conversion' in repr(e).lower():
+                                rejected = convert_to_candidates.pop(0)
+                                logger.warning(f"This spey version does not know '{rejected}', "
+                                               f"trying '{convert_to_candidates[0]}' instead.")
+                                continue
+                            raise
+                    if simplified_background_model is None:
+                        mes = 'Could not build the simplified background model.'
+                        logger.critical(mes)
+                        raise RuntimeError(mes)
 
                     cov_matrix = simplified_background_model.backend.covariance_matrix
-                    del simplified_background_model 
+                    del simplified_background_model
                     bkg_unc = list( zip( bins_names, list(np.sqrt(np.diag(cov_matrix))) ) )
                     del converter
+                    # bkg_yields/bkg_unc are in the MODEL's bin ordering here; re-express them
+                    # in the user's ordering so the tables below can be printed either way.
+                    bkg_yield_dict = OrderedDict(bkg_yields)
+                    bkg_unc_dict = OrderedDict(bkg_unc)
+                    bkg_yields_ordered = [(bin_name, bkg_yield_dict[bin_name]) for bin_name in input_bins_ordered]
+                    bkg_unc_ordered = [(bin_name, bkg_unc_dict[bin_name]) for bin_name in input_bins_ordered]
                 ##############################
                 # determine the observed yields
                 ##############################
@@ -457,13 +509,13 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 obs_yields_ordered = []
                 obs_data_dict = {}
                 obs_bin_iter = 0
-                for channel_item in model_obs.config.channel_nbins.items():
-                    channel_name = channel_item[0]
-                    channel_nbins = channel_item[1]
-                    for nb in range(channel_nbins):
+                # NOTE: do not rebind channel_nbins here - it holds the model's full
+                # channel -> nbins map and is still needed further down.
+                for channel_name, n_bins_in_channel in model_obs.config.channel_nbins.items():
+                    for nb in range(n_bins_in_channel):
                         bin_name = channel_name + f'-{nb}'
                         obs_data_dict[bin_name] = data_obs[obs_bin_iter + nb]
-                    obs_bin_iter += channel_nbins
+                    obs_bin_iter += n_bins_in_channel
                 for bin_name in input_bins_ordered:
                     obs_yields_ordered.append([bin_name, obs_data_dict[bin_name]])
                 print_yield_table(input_bins_ordered, bins_is_signal_ordered, bkg_yields_ordered, bkg_unc_ordered, obs_yields_ordered, logger)
@@ -607,8 +659,7 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                         sig_rel_unc=param_dict['sig_rel_unc'],
                                         logger=logger
                                         )
-                #inputs = [(p, join(dirpath, f'table-{int(time.process_time_ns() - analysis_time ) + np.random.randint(1, 999)}.csv')) for p in p0s]
-                inputs = [(p, join(dirpath, f'table-{suffix}-{ii}.csv')) for ii, p in enumerate(p0s)]
+                inputs = [(p, join(dirpath, f'table-{suffix}-{scan_index}.csv')) for scan_index, p in enumerate(p0s)]
                 del p0s
                 gc.collect()
                 logger.info(f"Running {len(inputs)} scans, {param_dict['points']} points each, with {param_dict['processes']} processes ...")
@@ -629,8 +680,8 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 with open(metadata_path, "w") as outfile: 
                     json.dump(metadata, outfile, indent = 4)
                 os.rename(metadata_path, merged_file_path.replace('.csv', '.json'))
-                # calculate time of the scan
-                final_time = time.process_time_ns() - analysis_time
+                # calculate time of the scan (wall-clock, see analysis_time above)
+                final_time = time.perf_counter_ns() - analysis_time
                 time_per_point = np.round( (final_time//10**9) / ( param_dict['points'] * param_dict['scans']), 3)
                 time_string = get_time_string(final_time)
                 logger.info(f'Finished scan for {param_dict["analysis"]}. It took {time_string} in total, on average {time_per_point} seconds per point.')

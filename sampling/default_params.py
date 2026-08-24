@@ -31,7 +31,7 @@ default_param_dict = {
                         'signal_leakage_VR_spread' : 0.10,
                         'spey_verbose_lvl' : 1,
                         'SR_sigma' : 0.05,
-                        'start method' : 'default',
+                        'start_method' : 'default',
                         'VR_center' : 'obs',
                         'VR_sigma' : 0.02,
                         }

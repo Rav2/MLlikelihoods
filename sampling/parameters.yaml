@@ -79,10 +79,10 @@ start_method : 'fine-tune'
 cluster : True
 CR_center : 'exp'
 VR_center : 'exp'
-SR_sigma' : 0.1
-CR_sigma' : 0.001
-VR_sigma' : 0.001
-scan_criterion : 'nLL_exp_mu1'                                                                                                
+SR_sigma : 0.1
+CR_sigma : 0.001
+VR_sigma : 0.001
+scan_criterion : 'nLL_exp_mu1'
 ---
 analysis : '1912.08479'
 include : cards/1912.08479.yaml
@@ -102,7 +102,7 @@ low_lim_samples : 50
 ---
 analysis : '2106.01676'
 include: cards/2106.01676.yaml
-scan : 1
+scans : 1
 processes : 1
 points : 40
 buffer_size : 20
