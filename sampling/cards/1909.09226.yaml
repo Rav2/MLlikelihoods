@@ -1,4 +1,32 @@
-bkgfiles : 
+#
+# ATLAS-SUSY-2019-08 / arXiv:1909.09226
+# Electroweakinos -> 1 lepton + h(bb) + MET, 139/fb
+#
+# The model has 14 BINS, not 8: each of the three signal regions is split into
+# three mCT bins ([180,230], [230,280], [280,330] GeV, overflow in the last).
+# bkg_yields / bkg_unc are indexed per BIN, in the channel order below, so both
+# lists must hold 14 entries. The previous 7 were per-CHANNEL values (as a
+# paper quotes them) with TRLMEM_cuts missing.
+#
+# The values are the POST-FIT background from the ATLAS background-only fit:
+# the control regions alone constrain mu_Top / mu_W / mu_ST and the signal
+# regions are extrapolated. The nominal sum over the workspace samples is a
+# PRE-FIT number and does not match the paper (SR-MM: 9.57 pre-fit vs 8.62
+# post-fit). Fitting all regions at once is also wrong - the SR excess then
+# pulls the very normalisation factors that predict it, giving SR-HM 12.7.
+#
+# Signal regions: the published numbers, from HEPData record ins1755298
+#   tables t7/t8/t9 (dataMC_SR{HM,LM,MM}_mct, "Expected background",
+#   sys (x) stat). tools/postfit_yields.py reproduces them from the likelihood
+#   to within 0.09%; tools/validate_vs_hepdata.py runs that comparison.
+#
+# Control regions: HEPData publishes no per-CR yields for this analysis, so
+#   these come from the same reproduced CR-only fit. That is harmless here: a
+#   CR bin's central value is its OBSERVED yield and its scan range is
+#   +/- obs * signal_leakage_CR_spread, so get_scan_limits never uses a CR
+#   entry of bkg_yields. They are kept for the printed table and the metadata.
+#
+bkgfiles :
     - BkgOnly.json
 patchsets :
     - patchset.json
@@ -12,18 +40,32 @@ channels :
        TRMMEM_cuts : 'CR'
        WREM_cuts : 'CR'
 bkg_yields :
-    - 8.1
-    - 27.0
-    - 8.6
-    - 155
-    - 637
-    - 477
-    - 145
+    - 4.059      # SRHMEM_mct2-0   mCT 180-230   [HEPData t7]
+    - 2.917      # SRHMEM_mct2-1   mCT 230-280   [HEPData t7]
+    - 1.120      # SRHMEM_mct2-2   mCT 280-330   [HEPData t7]
+    - 8.833      # SRLMEM_mct2-0   mCT 180-230   [HEPData t9]
+    - 11.280     # SRLMEM_mct2-1   mCT 230-280   [HEPData t9]
+    - 7.281      # SRLMEM_mct2-2   mCT 280-330   [HEPData t9]
+    - 4.588      # SRMMEM_mct2-0   mCT 180-230   [HEPData t8]
+    - 2.631      # SRMMEM_mct2-1   mCT 230-280   [HEPData t8]
+    - 1.404      # SRMMEM_mct2-2   mCT 280-330   [HEPData t8]
+    - 154.27     # STCREM_cuts-0                 [CR-only fit]
+    - 644.75     # TRHMEM_cuts-0                 [CR-only fit]
+    - 665.48     # TRLMEM_cuts-0                 [CR-only fit]
+    - 479.98     # TRMMEM_cuts-0                 [CR-only fit]
+    - 143.40     # WREM_cuts-0                   [CR-only fit]
 bkg_unc :
-    - 2.7
-    - 4.0
-    - 2.2
-    - 12.4
-    - 25.2
-    - 21.8
-    - 12.0
+    - 1.885      # SRHMEM_mct2-0   [HEPData t7]
+    - 1.318      # SRHMEM_mct2-1   [HEPData t7]
+    - 0.4623     # SRHMEM_mct2-2   [HEPData t7]
+    - 2.675      # SRLMEM_mct2-0   [HEPData t9]
+    - 3.028      # SRLMEM_mct2-1   [HEPData t9]
+    - 1.541      # SRLMEM_mct2-2   [HEPData t9]
+    - 1.721      # SRMMEM_mct2-0   [HEPData t8]
+    - 1.269      # SRMMEM_mct2-1   [HEPData t8]
+    - 0.548      # SRMMEM_mct2-2   [HEPData t8]
+    - 12.30      # STCREM_cuts-0   [CR-only fit]
+    - 24.53      # TRHMEM_cuts-0   [CR-only fit]
+    - 24.13      # TRLMEM_cuts-0   [CR-only fit]
+    - 19.65      # TRMMEM_cuts-0   [CR-only fit]
+    - 11.91      # WREM_cuts-0     [CR-only fit]
