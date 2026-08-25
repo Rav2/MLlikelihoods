@@ -606,10 +606,19 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                                     basename(patchset_path),
                                                     logger)
                 if hardcoded_limits is not None:
+                    # Stored limits are only valid for the configuration they were
+                    # probed with: a different signal uncertainty, or a leakage spread
+                    # wider than the harvested one, puts the scan outside the range
+                    # that was actually verified. Fall back to computing them.
+                    if not check_scan_limits_context(param_dict.get('scan_limits_context'),
+                                                     param_dict, basename(patchset_path), logger):
+                        hardcoded_limits = None
+
+                if hardcoded_limits is not None:
                     nSmin, nSmax = hardcoded_limits
                     param_dict['scan_limits_source'] = 'parameter card'
                     logger.info(f"Scan limits mode: LOADED from the parameter card "
-                                f"({len(bins_names)} bins, assumed harvested at "
+                                f"({len(bins_names)} bins, harvested at "
                                 f"sig_rel_unc={param_dict['sig_rel_unc']}, "
                                 f"CR/VR spread {param_dict['signal_leakage_CR_spread']}/"
                                 f"{param_dict['signal_leakage_VR_spread']}). "

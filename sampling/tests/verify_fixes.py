@@ -347,9 +347,15 @@ def test_1911_12606_cards():
             assert len(entry) == len(c['channels'][i]), \
                 f'patchset {i}: {len(entry)} limit rows vs {len(c["channels"][i])} channels'
             assert all(isinstance(p, list) and len(p) == 2 and p[0] <= p[1] for p in entry)
+    # measured: the limits come out identical at 0.0 and 0.20 on this workspace,
+    # because the probe succeeds at mu=1 before the uncertainty can matter
     assert a['scan_limits'] == b['scan_limits'], 'the two variants disagree on scan limits'
-    # everything except sig_rel_unc must match
+    # each card's context must record its OWN uncertainty
+    assert a['scan_limits_context']['sig_rel_unc'] == 0.0
+    assert b['scan_limits_context']['sig_rel_unc'] == 0.20
+    # everything else must match: sig_rel_unc is the only intended difference
     del a['sig_rel_unc'], b['sig_rel_unc']
+    del a['scan_limits_context']['sig_rel_unc'], b['scan_limits_context']['sig_rel_unc']
     assert a == b, 'cards differ beyond sig_rel_unc'
 
 
@@ -467,6 +473,92 @@ def test_harvest_prepares_general_config():
         assert 'scan_limits' not in c, 'harvest card still carries scan_limits'
         # exactly one patchset enabled
         assert sum(1 for p in c['patchsets'] if p[1]) == 1, c['patchsets']
+
+
+def _ctx_params(sig=0.0, cr=0.5, vr=0.5, leak_cr=True, leak_vr=True):
+    return {'sig_rel_unc': sig, 'signal_leakage_CR_spread': cr, 'signal_leakage_VR_spread': vr,
+            'signal_leakage_CR': leak_cr, 'signal_leakage_VR': leak_vr}
+
+
+HARVEST_CTX = {'sig_rel_unc': 0.0, 'signal_leakage_CR_spread': 0.5,
+               'signal_leakage_VR_spread': 0.5, 'CR_center': 'obs', 'VR_center': 'obs'}
+
+
+def test_context_guard_accepts_matching_run():
+    import utils
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(), 'p', log) is True
+
+
+def test_context_guard_rejects_changed_uncertainty():
+    """ANY change to sig_rel_unc invalidates the limits, in either direction."""
+    import utils
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(sig=0.20), 'p', log) is False
+    ctx = dict(HARVEST_CTX, sig_rel_unc=0.20)
+    assert utils.check_scan_limits_context(ctx, _ctx_params(sig=0.0), 'p', log) is False
+    # and a match still passes
+    assert utils.check_scan_limits_context(ctx, _ctx_params(sig=0.20), 'p', log) is True
+
+
+def test_context_guard_rejects_wider_spread():
+    """A spread WIDER than harvested pushes the scan past verified territory."""
+    import utils
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(cr=0.6), 'p', log) is False
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(vr=0.9), 'p', log) is False
+    # equal is fine; narrower is allowed (warns) because the box merely covers more
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(cr=0.5), 'p', log) is True
+    assert utils.check_scan_limits_context(HARVEST_CTX, _ctx_params(cr=0.1), 'p', log) is True
+
+
+def test_context_guard_ignores_pinned_regions():
+    """A region with leakage off is pinned on load, so its spread is irrelevant."""
+    import utils
+    # CR spread far wider than harvested, but CR leakage is off -> still usable
+    p = _ctx_params(cr=5.0, leak_cr=False)
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is True
+    # same spread but leakage ON -> rejected
+    p = _ctx_params(cr=5.0, leak_cr=True)
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
+
+
+def test_context_guard_missing_context():
+    """A card without context cannot be checked; warn and allow, do not crash."""
+    import utils
+    assert utils.check_scan_limits_context(None, _ctx_params(), 'p', log) is True
+    try:
+        utils.check_scan_limits_context(['not', 'a', 'mapping'], _ctx_params(), 'p', log)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('a non-mapping context should raise')
+
+
+def test_context_guard_wired_into_sample():
+    src = open('sample.py').read()
+    assert 'check_scan_limits_context(' in src, 'sample.py never checks the harvest context'
+    guard = src.index('check_scan_limits_context(')
+    probe = src.index('nSmin = find_min_S(')
+    assert guard < probe, 'the guard runs after the probe'
+    # a failed guard must fall back to computing
+    tail = src[guard:guard + 400]
+    assert 'hardcoded_limits = None' in tail, 'a failed guard does not fall back to recomputation'
+
+
+def test_cards_carry_context():
+    """Every card with scan_limits must record what it was harvested with."""
+    import yaml, os
+    for f in sorted(os.listdir('cards')):
+        if not f.endswith('.yaml') or 'kopia' in f:
+            continue
+        c = yaml.safe_load(open(os.path.join('cards', f)))
+        if not c.get('scan_limits'):
+            continue
+        ctx = c.get('scan_limits_context')
+        assert isinstance(ctx, dict), f'{f}: scan_limits without scan_limits_context'
+        for k in ('sig_rel_unc', 'signal_leakage_CR_spread', 'signal_leakage_VR_spread'):
+            assert k in ctx, f'{f}: context missing {k}'
+        if 'sig_rel_unc' in c:
+            assert abs(c['sig_rel_unc'] - ctx['sig_rel_unc']) < 1e-12, \
+                f'{f}: card sig_rel_unc {c["sig_rel_unc"]} != harvested {ctx["sig_rel_unc"]}'
 
 
 def test_merge_results_roundtrip():

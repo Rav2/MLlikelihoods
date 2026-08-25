@@ -21,6 +21,9 @@ default_param_dict = {
                         'removeCRsVRs' : False,
                         'scan_criterion' : 'mu1',
                         'scan_limits' : None,
+                        # settings the hardcoded scan_limits were probed with; the
+                        # sampler recomputes the limits when this run would exceed them
+                        'scan_limits_context' : None,
                         'scans' : 1, 
                         'sig_rel_unc' : 0.0,
                         'signal_leakage_CR' : True,

@@ -200,6 +200,84 @@ def load_scan_limits(scan_limits, patchset_index, n_patchsets, input_bins_ordere
     return np.round(lows - central_values, 4), np.round(highs - central_values, 4)
 
 
+#: Tolerance for comparing a run's settings against the harvest context.
+_CONTEXT_TOL = 1e-12
+
+
+def check_scan_limits_context(context, param_dict, patchset_label, logger):
+    """Decide whether hardcoded limits are still valid for this run's settings.
+
+    Stored limits are only as good as the configuration they were probed with.
+    Two settings invalidate them outright:
+
+    * **signal uncertainty** - the probe injects the same ``histosys`` modifier
+      the scan uses, so any change to ``sig_rel_unc`` can move the floor;
+    * **a larger leakage spread** - a CR/VR bin's range is ``obs * spread``, so
+      asking for a wider spread than was harvested pushes the scan past the
+      range that was actually verified.
+
+    A *smaller* spread is not unsafe - the stored box merely covers more than
+    this run asked for - so it warns instead of forcing a recomputation. A
+    region whose leakage is switched off is not checked at all: its bins are
+    pinned on load and never move.
+
+    Args:
+        context (dict or None): ``scan_limits_context`` from the card. ``None``
+            means the card predates the guard; the check is skipped with a
+            warning, since there is nothing to compare against.
+        param_dict (dict): This run's parameters.
+        patchset_label (str): Patchset name, for the log messages.
+        logger (logging.Logger): Logger for the verdict.
+
+    Returns:
+        bool: ``True`` if the stored limits may be used, ``False`` if they must
+        be recomputed.
+    """
+    if context is None:
+        logger.warning(f"'scan_limits' for {patchset_label} carries no 'scan_limits_context', "
+                       f"so it cannot be checked against this run's settings. Re-harvest with "
+                       f"tools/harvest_limits.py to enable the guard.")
+        return True
+    if not isinstance(context, dict):
+        mes = f"'scan_limits_context' must be a mapping, got {type(context).__name__}!"
+        logger.critical(mes)
+        raise ValueError(mes)
+
+    reasons = []
+
+    harvested_sig = context.get('sig_rel_unc')
+    current_sig = param_dict['sig_rel_unc']
+    if harvested_sig is None:
+        logger.warning(f"'scan_limits_context' for {patchset_label} does not record sig_rel_unc; "
+                       f"cannot verify it.")
+    elif abs(float(harvested_sig) - float(current_sig)) > _CONTEXT_TOL:
+        reasons.append(f'signal uncertainty changed ({harvested_sig} at harvest, {current_sig} now)')
+
+    for region, leak_key, spread_key in (('CR', 'signal_leakage_CR', 'signal_leakage_CR_spread'),
+                                         ('VR', 'signal_leakage_VR', 'signal_leakage_VR_spread')):
+        if not param_dict[leak_key]:
+            continue        # region is pinned on load, its spread is irrelevant
+        harvested = context.get(spread_key)
+        current = param_dict[spread_key]
+        if harvested is None:
+            logger.warning(f"'scan_limits_context' for {patchset_label} does not record "
+                           f"{spread_key}; cannot verify it.")
+            continue
+        if float(current) > float(harvested) + _CONTEXT_TOL:
+            reasons.append(f'{region} leakage spread increased '
+                           f'({harvested} at harvest, {current} now)')
+        elif float(current) < float(harvested) - _CONTEXT_TOL:
+            logger.warning(f'{region} leakage spread is smaller than at harvest '
+                           f'({harvested} -> {current}), so the loaded limits cover a WIDER '
+                           f'range than this run asks for. Re-harvest to match it exactly.')
+
+    if reasons:
+        logger.warning(f'Hardcoded scan limits for {patchset_label} are NOT valid for this run: '
+                       + '; '.join(reasons) + '. Recomputing them instead.')
+        return False
+    return True
+
+
 def apply_region_pinning(nSmin, nSmax, channels_and_bins, signal_leakage_CR, signal_leakage_VR, logger):
     """Collapse the range of regions whose signal leakage is switched off.
 

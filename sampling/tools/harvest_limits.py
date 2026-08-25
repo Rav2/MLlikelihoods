@@ -195,13 +195,23 @@ def cmd_merge(args):
             provenance[i] = (os.path.basename(p), m.get('seed'))
         print(f'  {os.path.basename(p)} -> patchsets {indices} ({len(wanted)} bins)')
 
-    context = {
-        'sig_rel_unc': args.sig_rel_unc,
-        'signal_leakage_CR_spread': metas[0][1].get('signal_leakage_CR_spread'),
-        'signal_leakage_VR_spread': metas[0][1].get('signal_leakage_VR_spread'),
-        'CR_center': metas[0][1].get('CR_center'),
-        'VR_center': metas[0][1].get('VR_center'),
-    }
+    CONTEXT_KEYS = ('sig_rel_unc', 'signal_leakage_CR_spread', 'signal_leakage_VR_spread',
+                    'CR_center', 'VR_center')
+    context = {k: metas[0][1].get(k) for k in CONTEXT_KEYS}
+    # every merged run must share one context, otherwise the stored block would
+    # claim settings that only some of its limits were probed with
+    for path, m in metas[1:]:
+        for k in CONTEXT_KEYS:
+            if m.get(k) != context[k]:
+                raise SystemExit(f'{path}: {k}={m.get(k)!r} but {os.path.basename(metas[0][0])} '
+                                 f'has {context[k]!r}. Harvest all patchsets with the same settings.')
+    for path, m in metas:
+        if not m.get('signal_leakage_CR', True) or not m.get('signal_leakage_VR', True):
+            raise SystemExit(f'{path}: harvested with leakage disabled in a region, so the box is '
+                             f'not general. Re-harvest with tools/harvest_limits.py prepare.')
+        if m.get('remove_channels'):
+            raise SystemExit(f'{path}: harvested with channels removed ({m["remove_channels"]}), so '
+                             f'the box is not general. Re-harvest with tools/harvest_limits.py prepare.')
     block = render_block(card, entries, names, nbins, provenance, args.sig_rel_unc)
     out = args.output or args.card
     write_card(card_text, out, block, args.sig_rel_unc, context)
@@ -225,6 +235,19 @@ def render_block(card, entries, names, nbins, provenance, sig_rel_unc):
 
 
 MARKER = '\n#\n# --- scan limits'
+
+
+def render_context(context):
+    """Machine-readable harvest settings; the sampler checks a run against these."""
+    lines = ['scan_limits_context :',
+             '    # the settings scan_limits was probed with. The sampler recomputes the',
+             '    # limits when a run changes sig_rel_unc, or asks for a leakage spread',
+             '    # WIDER than the one harvested here.']
+    for k, v in context.items():
+        if v is None:
+            continue
+        lines.append(f'    {k} : {v!r}' if isinstance(v, str) else f'    {k} : {v}')
+    return '\n'.join(lines) + '\n\n'
 
 
 def write_card(card_text, out_path, block, sig_rel_unc, context=None):
@@ -252,7 +275,8 @@ def write_card(card_text, out_path, block, sig_rel_unc, context=None):
         f'# does not have to run again.'
     )
     with open(out_path, 'w') as f:
-        f.write(text + MARKER + ' ' + header + '\n#\n' + block)
+        f.write(text + MARKER + ' ' + header + '\n#\n'
+                + render_context(context or {}) + block)
 
 
 # --------------------------------------------------------------------------
