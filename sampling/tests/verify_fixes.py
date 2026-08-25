@@ -525,15 +525,38 @@ def test_context_guard_ignores_pinned_regions():
 
 
 def test_context_guard_missing_context():
-    """A card without context cannot be checked; warn and allow, do not crash."""
+    """No context means nothing can be verified -> recompute, do not trust."""
     import utils
-    assert utils.check_scan_limits_context(None, _ctx_params(), 'p', log) is True
+    assert utils.check_scan_limits_context(None, _ctx_params(), 'p', log) is False
+    assert utils.check_scan_limits_context({}, _ctx_params(), 'p', log) is False
     try:
         utils.check_scan_limits_context(['not', 'a', 'mapping'], _ctx_params(), 'p', log)
     except ValueError:
         pass
     else:
         raise AssertionError('a non-mapping context should raise')
+
+
+def test_context_guard_partial_context():
+    """A setting this run depends on but the context omits is unverifiable."""
+    import utils
+    full = dict(HARVEST_CTX)
+
+    # sig_rel_unc missing -> cannot verify the most important dimension
+    no_sig = {k: v for k, v in full.items() if k != 'sig_rel_unc'}
+    assert utils.check_scan_limits_context(no_sig, _ctx_params(), 'p', log) is False
+
+    # CR spread missing while CR leakage is ON -> unverifiable
+    no_cr = {k: v for k, v in full.items() if k != 'signal_leakage_CR_spread'}
+    assert utils.check_scan_limits_context(no_cr, _ctx_params(leak_cr=True), 'p', log) is False
+
+    # same context, but CR leakage OFF -> the CR spread is irrelevant, so it is fine
+    assert utils.check_scan_limits_context(no_cr, _ctx_params(leak_cr=False), 'p', log) is True
+
+    # VR spread missing with VR leakage off -> fine
+    no_vr = {k: v for k, v in full.items() if k != 'signal_leakage_VR_spread'}
+    assert utils.check_scan_limits_context(no_vr, _ctx_params(leak_vr=False), 'p', log) is True
+    assert utils.check_scan_limits_context(no_vr, _ctx_params(leak_vr=True), 'p', log) is False
 
 
 def test_loaded_message_reports_harvest_not_run():

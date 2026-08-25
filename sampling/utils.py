@@ -221,10 +221,15 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     region whose leakage is switched off is not checked at all: its bins are
     pinned on load and never move.
 
+    The check is HARD: limits are used only when every setting that matters for
+    this run can be positively verified. A missing ``scan_limits_context``, or a
+    context that does not record a setting this run depends on, means the limits
+    are recomputed rather than trusted.
+
     Args:
         context (dict or None): ``scan_limits_context`` from the card. ``None``
-            means the card predates the guard; the check is skipped with a
-            warning, since there is nothing to compare against.
+            means the card predates the guard or was written by hand; there is
+            nothing to verify against, so the limits are recomputed.
         param_dict (dict): This run's parameters.
         patchset_label (str): Patchset name, for the log messages.
         logger (logging.Logger): Logger for the verdict.
@@ -235,9 +240,10 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     """
     if context is None:
         logger.warning(f"'scan_limits' for {patchset_label} carries no 'scan_limits_context', "
-                       f"so it cannot be checked against this run's settings. Re-harvest with "
-                       f"tools/harvest_limits.py to enable the guard.")
-        return True
+                       f"so it cannot be checked against this run's settings. Recomputing the "
+                       f"limits instead. Re-harvest with tools/harvest_limits.py to record the "
+                       f"context and get the speed-up back.")
+        return False
     if not isinstance(context, dict):
         mes = f"'scan_limits_context' must be a mapping, got {type(context).__name__}!"
         logger.critical(mes)
@@ -248,8 +254,7 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     harvested_sig = context.get('sig_rel_unc')
     current_sig = param_dict['sig_rel_unc']
     if harvested_sig is None:
-        logger.warning(f"'scan_limits_context' for {patchset_label} does not record sig_rel_unc; "
-                       f"cannot verify it.")
+        reasons.append('sig_rel_unc not recorded in scan_limits_context, so it cannot be verified')
     elif abs(float(harvested_sig) - float(current_sig)) > _CONTEXT_TOL:
         reasons.append(f'signal uncertainty changed ({harvested_sig} at harvest, {current_sig} now)')
 
@@ -260,8 +265,10 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
         harvested = context.get(spread_key)
         current = param_dict[spread_key]
         if harvested is None:
-            logger.warning(f"'scan_limits_context' for {patchset_label} does not record "
-                           f"{spread_key}; cannot verify it.")
+            # this run leaks signal into the region, so its spread matters and
+            # an unrecorded one cannot be verified
+            reasons.append(f'{spread_key} not recorded in scan_limits_context, so it cannot '
+                           f'be verified ({region} leakage is enabled for this run)')
             continue
         if float(current) > float(harvested) + _CONTEXT_TOL:
             reasons.append(f'{region} leakage spread increased '

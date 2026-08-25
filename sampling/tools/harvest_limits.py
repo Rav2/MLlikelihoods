@@ -240,9 +240,11 @@ MARKER = '\n#\n# --- scan limits'
 def render_context(context):
     """Machine-readable harvest settings; the sampler checks a run against these."""
     lines = ['scan_limits_context :',
-             '    # the settings scan_limits was probed with. The sampler recomputes the',
+             '    # The settings scan_limits was probed with. The sampler recomputes the',
              '    # limits when a run changes sig_rel_unc, or asks for a leakage spread',
-             '    # WIDER than the one harvested here.']
+             '    # WIDER than the one harvested here.',
+             '    # REQUIRED: without this block, or without a setting the run depends',
+             '    # on, the limits cannot be verified and are recomputed.']
     for k, v in context.items():
         if v is None:
             continue
