@@ -265,6 +265,210 @@ def test_removal_resolved_before_find_min_S():
     assert 'probe_mask=probe_mask' in src, 'find_min_S is not given the probe mask'
 
 
+def _limits_fixture():
+    """Two-channel model; card lists the channels in the REVERSE of model order."""
+    import numpy as np
+    model_bins = ['CRa_cuts-0', 'CRa_cuts-1', 'SRb_cuts-0']
+    card_bins  = ['SRb_cuts-0', 'CRa_cuts-0', 'CRa_cuts-1']
+    central = np.array([100.0, 50.0, 8.0])          # model order
+    # card order: SRb(8), CRa-0(100), CRa-1(50)
+    entry = [[2.0, 20.0], [90.0, 115.0], [45.0, 58.0]]
+    return model_bins, card_bins, central, entry
+
+
+def test_scan_limits_reorders_and_converts():
+    """Limits are total yields in CARD order; must come back as offsets in MODEL order."""
+    import utils, numpy as np
+    model_bins, card_bins, central, entry = _limits_fixture()
+    lo, hi = utils.load_scan_limits([entry], 0, 1, card_bins, model_bins, central, 'ps.json', log)
+    # model order is CRa-0, CRa-1, SRb-0 -> totals (90,115), (45,58), (2,20)
+    assert np.allclose(lo, [90.0-100.0, 45.0-50.0, 2.0-8.0]), lo
+    assert np.allclose(hi, [115.0-100.0, 58.0-50.0, 20.0-8.0]), hi
+
+
+def test_scan_limits_none_paths():
+    import utils
+    model_bins, card_bins, central, entry = _limits_fixture()
+    assert utils.load_scan_limits(None, 0, 1, card_bins, model_bins, central, 'p', log) is None
+    assert utils.load_scan_limits([None], 0, 1, card_bins, model_bins, central, 'p', log) is None
+    # per-patchset selection
+    out = utils.load_scan_limits([None, entry], 1, 2, card_bins, model_bins, central, 'p', log)
+    assert out is not None
+
+
+def test_scan_limits_validation():
+    """Every malformed shape must raise, not silently sample the wrong box."""
+    import utils
+    model_bins, card_bins, central, entry = _limits_fixture()
+
+    def expect_raise(sl, idx, n, why, bins=None):
+        try:
+            utils.load_scan_limits(sl, idx, n, bins or card_bins, model_bins, central, 'p', log)
+        except ValueError:
+            return
+        raise AssertionError(f'no ValueError for {why}')
+
+    expect_raise(entry, 0, 1, 'not nested per patchset')          # forgot the outer list
+    expect_raise([entry], 0, 2, 'wrong number of patchsets')
+    expect_raise([entry[:2]], 0, 1, 'wrong number of bins')
+    expect_raise([[[1.0], [2.0, 3.0], [4.0, 5.0]]], 0, 1, 'pair of wrong length')
+    expect_raise([[['x', 3.0], [2.0, 3.0], [4.0, 5.0]]], 0, 1, 'non-numeric value')
+    expect_raise([[[20.0, 2.0], [90.0, 115.0], [45.0, 58.0]]], 0, 1, 'min above max')
+    # central value outside its limits -> the classic "I stored signal offsets" mistake
+    expect_raise([[[-6.0, 12.0], [-10.0, 15.0], [-5.0, 8.0]]], 0, 1, 'central outside limits')
+
+
+def test_scan_limits_wired_into_sample():
+    src = open('sample.py').read()
+    assert 'load_scan_limits(' in src, 'sample.py never calls load_scan_limits'
+    load = src.index('hardcoded_limits = load_scan_limits(')
+    probe = src.index('nSmin = find_min_S(')
+    assert load < probe, 'limits are loaded after find_min_S instead of instead of it'
+    assert 'Scan limits mode: LOADED' in src and 'Scan limits mode: COMPUTED' in src, \
+        'no log message distinguishing the two modes'
+    # find_min_S must sit inside the else branch, i.e. be skipped when limits are loaded
+    between = src[load:probe]
+    assert 'else:' in between, 'find_min_S is not guarded by the loaded/computed branch'
+
+
+def test_1911_12606_cards():
+    """Both card variants must parse, agree on limits, and differ only in sig_rel_unc."""
+    import yaml, json, os
+    a = yaml.safe_load(open('cards/1911.12606.yaml'))
+    b = yaml.safe_load(open('cards/1911.12606-sigunc20.yaml'))
+    assert a['sig_rel_unc'] == 0.0, a['sig_rel_unc']
+    assert b['sig_rel_unc'] == 0.20, b['sig_rel_unc']
+    for c in (a, b):
+        sl = c['scan_limits']
+        assert len(sl) == len(c['patchsets']), 'scan_limits does not mirror patchsets'
+        for i, entry in enumerate(sl):
+            if entry is None:
+                continue
+            assert len(entry) == len(c['channels'][i]), \
+                f'patchset {i}: {len(entry)} limit rows vs {len(c["channels"][i])} channels'
+            assert all(isinstance(p, list) and len(p) == 2 and p[0] <= p[1] for p in entry)
+    assert a['scan_limits'] == b['scan_limits'], 'the two variants disagree on scan limits'
+    # everything except sig_rel_unc must match
+    del a['sig_rel_unc'], b['sig_rel_unc']
+    assert a == b, 'cards differ beyond sig_rel_unc'
+
+
+def test_signal_modifiers_shared():
+    """The probe and the scan must build signal modifiers the same way."""
+    import likelihood, numpy as np, inspect
+    vals = np.array([-4.0, 2.0])
+
+    plain = likelihood.build_signal_modifiers(vals, 0.0)
+    assert [m['type'] for m in plain] == ['lumi', 'normfactor'], plain
+
+    withunc = likelihood.build_signal_modifiers(vals, 0.20)
+    assert withunc[0]['type'] == 'histosys', withunc[0]
+    hi = list(withunc[0]['data']['hi_data'])
+    lo = list(withunc[0]['data']['lo_data'])
+    # the up-variation of a NEGATIVE signal is MORE negative than nominal -
+    # this is exactly why the probe has to see it
+    assert np.isclose(hi[0], -4.8), hi
+    assert np.isclose(lo[0], 0.0), lo   # existing clamp: max(0, S*(1-unc))
+    assert [m['type'] for m in withunc[1:]] == ['lumi', 'normfactor']
+
+    # both call sites must go through this one builder
+    scan_src = inspect.getsource(likelihood.LikelihoodCalculatorWrapper.inject_signal)
+    probe_src = inspect.getsource(likelihood.find_min_S)
+    assert 'build_signal_modifiers(' in scan_src, 'the scan does not use the shared builder'
+    assert 'build_signal_modifiers(' in probe_src, 'the probe does not use the shared builder'
+    assert 'sig_rel_unc' in inspect.signature(likelihood.find_min_S).parameters, \
+        'find_min_S cannot see the signal uncertainty'
+
+
+def test_probe_receives_signal_uncertainty():
+    """find_min_S must actually pass the uncertainty into the injected patch."""
+    import likelihood, numpy as np
+
+    captured = []
+
+    class FakeInterpreter:
+        background_only_model = {}
+        def inject_signal(self, channel, vals, modifiers=None):
+            captured.append((channel, list(vals), modifiers))
+        def make_patch(self):
+            return {}
+
+    class FakeModel:
+        class backend:
+            class manager:
+                backend = None
+        def likelihood(self, poi_test, expected):
+            return 1.0          # always finite -> probe stops after one iteration
+
+    orig = likelihood.WorkspaceInterpreter
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        likelihood.find_min_S(1, {}, lambda **kw: FakeModel(), np.array([-5.0]),
+                              [('SRx', 'SR', 1)], log, sig_rel_unc=0.20)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+
+    assert captured, 'find_min_S never injected anything'
+    _, _, mods = captured[0]
+    assert mods is not None, 'probe injected with default modifiers, ignoring sig_rel_unc'
+    assert mods[0]['type'] == 'histosys', f'no signal-uncertainty modifier in the probe: {mods}'
+
+
+def test_region_pinning_applied_to_loaded_limits():
+    """A loaded box is general; the run's own pinning must be re-imposed on it."""
+    import utils, numpy as np
+    cab = [('CRa_cuts', 'CR', 2), ('VRb_cuts', 'VR', 1), ('SRc_cuts', 'SR', 2)]
+    lo = np.array([-30.0, -25.0, -8.0, -4.0, -3.0])
+    hi = np.array([+30.0, +25.0, +8.0, +9.0, +7.0])
+
+    # leakage on everywhere -> untouched
+    a, b, n = utils.apply_region_pinning(lo, hi, cab, True, True, log)
+    assert n == 0 and np.allclose(a, lo) and np.allclose(b, hi)
+
+    # CR leakage off -> only the 2 CR bins collapse
+    a, b, n = utils.apply_region_pinning(lo, hi, cab, False, True, log)
+    assert n == 2, n
+    assert np.allclose(a[:2], -1e-10) and np.allclose(b[:2], 1e-10)
+    assert np.allclose(a[2:], lo[2:]), 'non-CR bins were altered'
+
+    # both off -> CR and VR collapse, SR untouched
+    a, b, n = utils.apply_region_pinning(lo, hi, cab, False, False, log)
+    assert n == 3, n
+    assert np.allclose(a[3:], lo[3:]) and np.allclose(b[3:], hi[3:])
+
+    # must not mutate the caller's arrays
+    assert np.allclose(lo, [-30.0, -25.0, -8.0, -4.0, -3.0]), 'input array was mutated'
+
+
+def test_pinning_wired_after_load():
+    src = open('sample.py').read()
+    load = src.index('hardcoded_limits = load_scan_limits(')
+    pin = src.index('apply_region_pinning(')
+    probe = src.index('nSmin = find_min_S(')
+    assert load < pin < probe, 'pinning is not applied to the loaded limits'
+
+
+def test_harvest_prepares_general_config():
+    """Harvest configs must probe every bin: leakage on, nothing removed."""
+    import subprocess, tempfile, yaml, os, glob
+    with tempfile.TemporaryDirectory() as d:
+        r = subprocess.run([sys.executable, 'tools/harvest_limits.py', 'prepare',
+                            'cards/1912.08479.yaml', '1912.08479',
+                            '--outdir', d, '--sig-rel-unc', '0.0'],
+                           capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        cards = glob.glob(os.path.join(d, 'card-*.yaml'))
+        assert cards, 'no harvest card generated'
+        c = yaml.safe_load(open(cards[0]))
+        assert c['signal_leakage_CR'] is True and c['signal_leakage_VR'] is True, \
+            'harvest would pin regions and produce a non-general box'
+        assert c['remove_channels'] == [] and c['removeCRsVRs'] is False, \
+            'harvest would drop channels and produce a non-general box'
+        assert 'scan_limits' not in c, 'harvest card still carries scan_limits'
+        # exactly one patchset enabled
+        assert sum(1 for p in c['patchsets'] if p[1]) == 1, c['patchsets']
+
+
 def test_merge_results_roundtrip():
     import utils
     with tempfile.TemporaryDirectory() as d:

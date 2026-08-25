@@ -594,18 +594,51 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 for channel_name in param_dict['remove_channels']:
                     logger.warning(f'Removing channel: {channel_name}')
 
-                # Only bins that the sampler will actually vary need a probed lower
-                # limit. A pinned bin (signal leakage off -> sigma 0) never moves off
-                # its central value, and a removed bin is dropped from the model
-                # before the likelihood is evaluated, so probing either one only buys
-                # the +1e-4 safety margin a bin that stays at zero must not get.
-                probe_mask = get_probe_mask(mask, channels_and_bins, param_dict['remove_channels'])
-                n_skipped = int(np.sum(~probe_mask))
-                if n_skipped:
-                    logger.info(f'Skipping {n_skipped} pinned/removed bins when setting the lower limit on S.')
-                logger.info(f"Setting the absolute lower limit on S ...")
-                nSmin = find_min_S(param_dict['low_lim_samples'], bkg_spec, stat_wrapper, nSmin,
-                                   channels_and_bins, logger, probe_mask=probe_mask)
+                #############################################################
+                # Scan limits: hardcoded in the card, or computed from yields
+                #############################################################
+                hardcoded_limits = load_scan_limits(param_dict['scan_limits'],
+                                                    file_pair_index,
+                                                    len(patchsets),
+                                                    input_bins_ordered,
+                                                    bins_names,
+                                                    central_values,
+                                                    basename(patchset_path),
+                                                    logger)
+                if hardcoded_limits is not None:
+                    nSmin, nSmax = hardcoded_limits
+                    param_dict['scan_limits_source'] = 'parameter card'
+                    logger.info(f"Scan limits mode: LOADED from the parameter card "
+                                f"({len(bins_names)} bins, assumed harvested at "
+                                f"sig_rel_unc={param_dict['sig_rel_unc']}, "
+                                f"CR/VR spread {param_dict['signal_leakage_CR_spread']}/"
+                                f"{param_dict['signal_leakage_VR_spread']}). "
+                                f"Skipping the lower-limit probe.")
+                    # The stored box covers every bin, including ones this run pins or
+                    # removes, so that it stays reusable. Re-impose this run's choices.
+                    nSmin, nSmax, _ = apply_region_pinning(nSmin, nSmax, channels_and_bins,
+                                                           param_dict['signal_leakage_CR'],
+                                                           param_dict['signal_leakage_VR'],
+                                                           logger)
+                    # nothing was probed, so the "initial" limits are the loaded ones
+                    nSmin_orig = copy.deepcopy(nSmin)
+                else:
+                    param_dict['scan_limits_source'] = 'computed'
+                    # Only bins that the sampler will actually vary need a probed lower
+                    # limit. A pinned bin (signal leakage off -> sigma 0) never moves off
+                    # its central value, and a removed bin is dropped from the model
+                    # before the likelihood is evaluated, so probing either one only buys
+                    # the +1e-4 safety margin a bin that stays at zero must not get.
+                    probe_mask = get_probe_mask(mask, channels_and_bins, param_dict['remove_channels'])
+                    n_probed = int(np.sum(probe_mask))
+                    logger.info(f"Scan limits mode: COMPUTED from yields "
+                                f"({n_probed} of {len(bins_names)} bins probed, "
+                                f"low_lim_samples={param_dict['low_lim_samples']}, "
+                                f"sig_rel_unc={param_dict['sig_rel_unc']}).")
+                    logger.info(f"Setting the absolute lower limit on S ...")
+                    nSmin = find_min_S(param_dict['low_lim_samples'], bkg_spec, stat_wrapper, nSmin,
+                                       channels_and_bins, logger, probe_mask=probe_mask,
+                                       sig_rel_unc=param_dict['sig_rel_unc'])
                 print_limit_table(bins_names, nSmin, nSmax, central_values, logger)
                 # find mu_SIG limits for max likelihood calculation
                 mu_min, mu_max = find_mu_limits(nSmin, nSmax, central_values, logger)

@@ -1,0 +1,189 @@
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Welcome to NLL sampler by Rafal Maselek (https://orcid.org/0000-0002-5558-8249)
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Using log directory: /tmp/harvest2/logs-1911_12606-ps0-sig0_0
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Process spawned.
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Loading the parameter file: ../harvest/params-1911_12606-ps0-sig0_0.yaml
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Param file loaded. 1 analyses to be sampled.
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Created parent directory for likelihood tables.
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Working on analysis 1911.12606.
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Using random seed value: 1787607218
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Created directory for likelihood tables.
+2026-08-24 21:33:38 [MainThread  ] [INFO    ] Analysing EWKinos_bkgonly.json and EWKinos_patchset.json files [1/4].
+2026-08-24 21:33:40 [MainThread  ] [INFO    ] 226 patches in the analysis.
+2026-08-24 21:33:40 [MainThread  ] [INFO    ] 50 channels found with 44 signal regions: 
+			SR_eMLLa_Onelep1track_cuts
+			SR_eMLLb_Onelep1track_cuts
+			SR_eMLLc_Onelep1track_cuts
+			SR_eMLLd_Onelep1track_cuts
+			SR_eMLLe_Onelep1track_cuts
+			SR_eMLLf_Onelep1track_cuts
+			SRee_eMLLc_hghmet_cuts
+			SRee_eMLLc_lowmet_deltaM_high_cuts
+			SRee_eMLLc_lowmet_deltaM_low_cuts
+			SRee_eMLLd_hghmet_cuts
+			SRee_eMLLd_lowmet_deltaM_high_cuts
+			SRee_eMLLd_lowmet_deltaM_low_cuts
+			SRee_eMLLe_hghmet_cuts
+			SRee_eMLLe_lowmet_deltaM_high_cuts
+			SRee_eMLLe_lowmet_deltaM_low_cuts
+			SRee_eMLLf_hghmet_cuts
+			SRee_eMLLf_lowmet_deltaM_high_cuts
+			SRee_eMLLf_lowmet_deltaM_low_cuts
+			SRee_eMLLg_hghmet_cuts
+			SRee_eMLLg_lowmet_deltaM_high_cuts
+			SRee_eMLLh_hghmet_cuts
+			SRee_eMLLh_lowmet_deltaM_high_cuts
+			SRmm_eMLLa_hghmet_cuts
+			SRmm_eMLLa_lowmet_deltaM_high_cuts
+			SRmm_eMLLa_lowmet_deltaM_low_cuts
+			SRmm_eMLLb_hghmet_cuts
+			SRmm_eMLLb_lowmet_deltaM_high_cuts
+			SRmm_eMLLb_lowmet_deltaM_low_cuts
+			SRmm_eMLLc_hghmet_cuts
+			SRmm_eMLLc_lowmet_deltaM_high_cuts
+			SRmm_eMLLc_lowmet_deltaM_low_cuts
+			SRmm_eMLLd_hghmet_cuts
+			SRmm_eMLLd_lowmet_deltaM_high_cuts
+			SRmm_eMLLd_lowmet_deltaM_low_cuts
+			SRmm_eMLLe_hghmet_cuts
+			SRmm_eMLLe_lowmet_deltaM_high_cuts
+			SRmm_eMLLe_lowmet_deltaM_low_cuts
+			SRmm_eMLLf_hghmet_cuts
+			SRmm_eMLLf_lowmet_deltaM_high_cuts
+			SRmm_eMLLf_lowmet_deltaM_low_cuts
+			SRmm_eMLLg_hghmet_cuts
+			SRmm_eMLLg_lowmet_deltaM_high_cuts
+			SRmm_eMLLh_hghmet_cuts
+			SRmm_eMLLh_lowmet_deltaM_high_cuts
+2026-08-24 21:33:40 [MainThread  ] [INFO    ] Getting the background yields.
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Loading background yields and uncertainties from the file.
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Successfully mapped 50 background yields and uncertainties
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Geting the observed number of events.
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Yields:
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] 
++--------------------------------------+-------+--------+------+------+
+| BIN                                  |   SR  |    BKG | ∆BKG |  OBS |
++--------------------------------------+-------+--------+------+------+
+| CRVV_MLL_hghmet_cuts-0               | False |  705.4 |  9.4 |  687 |
+| CRVV_MLL_lowmet_cuts-0               | False |  813.5 | 21.9 |  721 |
+| CRtau_MLL_hghmet_cuts-0              | False |  613.6 | 14.1 |  592 |
+| CRtau_MLL_lowmet_cuts-0              | False | 2227.2 | 35.4 | 2247 |
+| CRtop_MLL_hghmet_cuts-0              | False | 4074.2 | 22.1 | 4327 |
+| CRtop_MLL_lowmet_cuts-0              | False | 5767.2 | 26.4 | 6164 |
+| SR_eMLLa_Onelep1track_cuts-0         |  True |    1.0 |  1.0 |    0 |
+| SR_eMLLb_Onelep1track_cuts-0         |  True |    3.0 |  1.7 |    8 |
+| SR_eMLLc_Onelep1track_cuts-0         |  True |    6.0 |  2.4 |    8 |
+| SR_eMLLd_Onelep1track_cuts-0         |  True |   15.9 |  4.0 |   24 |
+| SR_eMLLe_Onelep1track_cuts-0         |  True |   21.8 |  4.7 |   24 |
+| SR_eMLLf_Onelep1track_cuts-0         |  True |   18.9 |  4.3 |   16 |
+| SRee_eMLLc_hghmet_cuts-0             |  True |    0.8 |  0.4 |    1 |
+| SRee_eMLLc_lowmet_deltaM_high_cuts-0 |  True |    4.3 |  1.8 |    7 |
+| SRee_eMLLc_lowmet_deltaM_low_cuts-0  |  True |    0.2 |  0.3 |    0 |
+| SRee_eMLLd_hghmet_cuts-0             |  True |    5.0 |  0.8 |   16 |
+| SRee_eMLLd_lowmet_deltaM_high_cuts-0 |  True |    7.9 |  1.4 |   11 |
+| SRee_eMLLd_lowmet_deltaM_low_cuts-0  |  True |    4.5 |  0.9 |    4 |
+| SRee_eMLLe_hghmet_cuts-0             |  True |   11.6 |  1.7 |   13 |
+| SRee_eMLLe_lowmet_deltaM_high_cuts-0 |  True |   17.6 |  1.7 |   16 |
+| SRee_eMLLe_lowmet_deltaM_low_cuts-0  |  True |    4.2 |  0.4 |   11 |
+| SRee_eMLLf_hghmet_cuts-0             |  True |   10.7 |  1.0 |    8 |
+| SRee_eMLLf_lowmet_deltaM_high_cuts-0 |  True |   14.1 |  1.8 |   16 |
+| SRee_eMLLf_lowmet_deltaM_low_cuts-0  |  True |    0.9 |  0.3 |    4 |
+| SRee_eMLLg_hghmet_cuts-0             |  True |   11.1 |  0.9 |    8 |
+| SRee_eMLLg_lowmet_deltaM_high_cuts-0 |  True |   14.3 |  1.2 |   10 |
+| SRee_eMLLh_hghmet_cuts-0             |  True |   19.6 |  1.2 |   18 |
+| SRee_eMLLh_lowmet_deltaM_high_cuts-0 |  True |   23.2 |  1.9 |    9 |
+| SRmm_eMLLa_hghmet_cuts-0             |  True |    2.6 |  0.4 |    5 |
+| SRmm_eMLLa_lowmet_deltaM_high_cuts-0 |  True |   21.1 |  2.5 |    9 |
+| SRmm_eMLLa_lowmet_deltaM_low_cuts-0  |  True |   14.3 |  1.9 |   16 |
+| SRmm_eMLLb_hghmet_cuts-0             |  True |    2.3 |  0.4 |    5 |
+| SRmm_eMLLb_lowmet_deltaM_high_cuts-0 |  True |   10.4 |  2.0 |    7 |
+| SRmm_eMLLb_lowmet_deltaM_low_cuts-0  |  True |    5.9 |  0.8 |    8 |
+| SRmm_eMLLc_hghmet_cuts-0             |  True |    7.2 |  1.6 |    0 |
+| SRmm_eMLLc_lowmet_deltaM_high_cuts-0 |  True |    7.3 |  1.9 |    7 |
+| SRmm_eMLLc_lowmet_deltaM_low_cuts-0  |  True |    6.6 |  0.5 |    6 |
+| SRmm_eMLLd_hghmet_cuts-0             |  True |   12.5 |  1.4 |    9 |
+| SRmm_eMLLd_lowmet_deltaM_high_cuts-0 |  True |   12.6 |  1.8 |   12 |
+| SRmm_eMLLd_lowmet_deltaM_low_cuts-0  |  True |   23.8 |  1.7 |   41 |
+| SRmm_eMLLe_hghmet_cuts-0             |  True |   15.1 |  1.6 |   23 |
+| SRmm_eMLLe_lowmet_deltaM_high_cuts-0 |  True |   16.3 |  1.7 |   17 |
+| SRmm_eMLLe_lowmet_deltaM_low_cuts-0  |  True |   40.7 |  1.6 |   59 |
+| SRmm_eMLLf_hghmet_cuts-0             |  True |   10.4 |  1.3 |    3 |
+| SRmm_eMLLf_lowmet_deltaM_high_cuts-0 |  True |   17.6 |  1.9 |   18 |
+| SRmm_eMLLf_lowmet_deltaM_low_cuts-0  |  True |   14.8 |  0.3 |   21 |
+| SRmm_eMLLg_hghmet_cuts-0             |  True |   11.4 |  1.0 |    5 |
+| SRmm_eMLLg_lowmet_deltaM_high_cuts-0 |  True |   15.8 |  1.3 |   16 |
+| SRmm_eMLLh_hghmet_cuts-0             |  True |   20.4 |  1.6 |   20 |
+| SRmm_eMLLh_lowmet_deltaM_high_cuts-0 |  True |   35.5 |  2.3 |   44 |
++--------------------------------------+-------+--------+------+------+
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Setting initial scan limits on S.
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Scan limits mode: COMPUTED from yields (50 of 50 bins probed, low_lim_samples=50, sig_rel_unc=0.0).
+2026-08-24 21:33:49 [MainThread  ] [INFO    ] Setting the absolute lower limit on S ...
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] Scan limits:
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] 
++--------------------------------------+--------+--------+
+| BIN                                  |    MIN |    MAX |
++--------------------------------------+--------+--------+
+| CRVV_MLL_hghmet_cuts-0               |  343.5 | 1030.5 |
+| CRVV_MLL_lowmet_cuts-0               |  360.5 | 1081.5 |
+| CRtau_MLL_hghmet_cuts-0              |  296.0 |  888.0 |
+| CRtau_MLL_lowmet_cuts-0              | 1123.5 | 3370.5 |
+| CRtop_MLL_hghmet_cuts-0              | 2163.5 | 6490.5 |
+| CRtop_MLL_lowmet_cuts-0              | 3082.0 | 9246.0 |
+| SR_eMLLa_Onelep1track_cuts-0         |    0.0 |    5.0 |
+| SR_eMLLb_Onelep1track_cuts-0         |    1.7 |   16.6 |
+| SR_eMLLc_Onelep1track_cuts-0         |    2.4 |   20.2 |
+| SR_eMLLd_Onelep1track_cuts-0         |    4.0 |   43.9 |
+| SR_eMLLe_Onelep1track_cuts-0         |    4.7 |   47.3 |
+| SR_eMLLf_Onelep1track_cuts-0         |    4.3 |   37.6 |
+| SRee_eMLLc_hghmet_cuts-0             |    0.4 |    2.9 |
+| SRee_eMLLc_lowmet_deltaM_high_cuts-0 |    1.8 |   16.1 |
+| SRee_eMLLc_lowmet_deltaM_low_cuts-0  |    0.0 |    1.7 |
+| SRee_eMLLd_hghmet_cuts-0             |    0.8 |   20.2 |
+| SRee_eMLLd_lowmet_deltaM_high_cuts-0 |    1.4 |   17.8 |
+| SRee_eMLLd_lowmet_deltaM_low_cuts-0  |    0.9 |    8.4 |
+| SRee_eMLLe_hghmet_cuts-0             |    1.7 |   21.5 |
+| SRee_eMLLe_lowmet_deltaM_high_cuts-0 |    1.7 |   24.4 |
+| SRee_eMLLe_lowmet_deltaM_low_cuts-0  |    0.4 |   12.9 |
+| SRee_eMLLf_hghmet_cuts-0             |    1.0 |   12.8 |
+| SRee_eMLLf_lowmet_deltaM_high_cuts-0 |    1.8 |   25.0 |
+| SRee_eMLLf_lowmet_deltaM_low_cuts-0  |    0.3 |    5.7 |
+| SRee_eMLLg_hghmet_cuts-0             |    0.9 |   12.4 |
+| SRee_eMLLg_lowmet_deltaM_high_cuts-0 |    1.2 |   15.8 |
+| SRee_eMLLh_hghmet_cuts-0             |    1.2 |   24.1 |
+| SRee_eMLLh_lowmet_deltaM_high_cuts-0 |    1.9 |   23.2 |
+| SRmm_eMLLa_hghmet_cuts-0             |    0.4 |    7.0 |
+| SRmm_eMLLa_lowmet_deltaM_high_cuts-0 |    2.5 |   21.5 |
+| SRmm_eMLLa_lowmet_deltaM_low_cuts-0  |    1.9 |   25.6 |
+| SRmm_eMLLb_hghmet_cuts-0             |    0.4 |    7.0 |
+| SRmm_eMLLb_lowmet_deltaM_high_cuts-0 |    2.0 |   17.0 |
+| SRmm_eMLLb_lowmet_deltaM_low_cuts-0  |    0.8 |   12.1 |
+| SRmm_eMLLc_hghmet_cuts-0             |    0.0 |    7.8 |
+| SRmm_eMLLc_lowmet_deltaM_high_cuts-0 |    1.9 |   16.6 |
+| SRmm_eMLLc_lowmet_deltaM_low_cuts-0  |    0.5 |    8.4 |
+| SRmm_eMLLd_hghmet_cuts-0             |    1.4 |   15.9 |
+| SRmm_eMLLd_lowmet_deltaM_high_cuts-0 |    1.8 |   20.9 |
+| SRmm_eMLLd_lowmet_deltaM_low_cuts-0  |    1.7 |   49.7 |
+| SRmm_eMLLe_hghmet_cuts-0             |    1.6 |   31.0 |
+| SRmm_eMLLe_lowmet_deltaM_high_cuts-0 |    1.7 |   25.4 |
+| SRmm_eMLLe_lowmet_deltaM_low_cuts-0  |    1.6 |   66.9 |
+| SRmm_eMLLf_hghmet_cuts-0             |    1.3 |   10.4 |
+| SRmm_eMLLf_lowmet_deltaM_high_cuts-0 |    1.9 |   27.5 |
+| SRmm_eMLLf_lowmet_deltaM_low_cuts-0  |    0.3 |   22.5 |
+| SRmm_eMLLg_hghmet_cuts-0             |    1.0 |   11.4 |
+| SRmm_eMLLg_lowmet_deltaM_high_cuts-0 |    1.3 |   22.4 |
+| SRmm_eMLLh_hghmet_cuts-0             |    1.6 |   27.9 |
+| SRmm_eMLLh_lowmet_deltaM_high_cuts-0 |    2.3 |   55.3 |
++--------------------------------------+--------+--------+
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] Mu bounds estimated: (-1.0000128144552496, 10.0)
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] Generating initial points.
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] Saving metadata.
+2026-08-24 23:00:27 [MainThread  ] [INFO    ] Preparing the scan.
+2026-08-24 23:00:28 [MainThread  ] [INFO    ] Running 1 scans, 2 points each, with 1 processes ...
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] Merging the results.
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] Merging results of 1 scans.
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] Results saved to /tmp/harvest2/1911_12606-ps0-sig0_0/1911.12606-0/results-EWKinos_bkgonly-EWKinos_patchset-0.csv
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] Updating the metadata.
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] Finished scan for 1911.12606. It took 1 hours 39 minutes 8 seconds in total, on average 2974.0 seconds per point.
+2026-08-24 23:12:46 [MainThread  ] [WARNING ] Skipping Selectrons_patchset.json
+2026-08-24 23:12:46 [MainThread  ] [WARNING ] Skipping Sleptons_patchset.json
+2026-08-24 23:12:46 [MainThread  ] [WARNING ] Skipping Smuons_patchset.json
+2026-08-24 23:12:46 [MainThread  ] [INFO    ] [END] Program finished! Total time of execution 1:39:08.434102

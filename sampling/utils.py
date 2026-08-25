@@ -94,6 +94,157 @@ def get_mask(shape, channels_and_bins, scan_SRs, scan_CRs, scan_VRs):
     return mask 
 
 
+def load_scan_limits(scan_limits, patchset_index, n_patchsets, input_bins_ordered,
+                     bins_names, central_values, patchset_label, logger):
+    """Load hardcoded scan limits for one patchset from the parameter card.
+
+    ``scan_limits`` mirrors the structure of ``patchsets``: one entry per
+    patchset, each either ``None`` (compute the limits as usual) or a list of
+    ``[min, max]`` pairs, one per bin, **in the same channel order as the rest
+    of the card** (i.e. ``input_bins_ordered``).
+
+    The stored values are TOTAL yields - the same numbers the sampler prints in
+    its "Scan limits" table and stores as ``lower_limits``/``upper_limits`` in
+    the metadata - so they are converted back to signal offsets relative to
+    ``central_values`` and returned in the MODEL's bin order.
+
+    Args:
+        scan_limits (list or None): The ``scan_limits`` parameter as read from
+            the card.
+        patchset_index (int): Index of the patchset currently being processed.
+        n_patchsets (int): Total number of patchsets, for shape validation.
+        input_bins_ordered (list[str]): Bin names in the card's channel order.
+        bins_names (list[str]): Bin names in the model's channel order.
+        central_values (numpy.ndarray): Central yields per bin, model order.
+        patchset_label (str): Name of the patchset, for log messages.
+        logger (logging.Logger): Logger for the mode and validation messages.
+
+    Returns:
+        tuple or None: ``(nSmin, nSmax)`` as signal offsets in the model's bin
+        order, or ``None`` when this patchset has no hardcoded limits.
+
+    Raises:
+        ValueError: If the entry is malformed - wrong nesting, wrong number of
+            bins, non-numeric values, ``min > max``, or a central value lying
+            outside its own limits.
+    """
+    if scan_limits is None:
+        return None
+    if not isinstance(scan_limits, list):
+        mes = f"'scan_limits' must be a list with one entry per patchset, got {type(scan_limits).__name__}!"
+        logger.critical(mes)
+        raise ValueError(mes)
+    if len(scan_limits) != n_patchsets:
+        mes = f"'scan_limits' has {len(scan_limits)} entries but there are {n_patchsets} patchsets! " \
+              f"Use null for the patchsets whose limits should be computed."
+        logger.critical(mes)
+        raise ValueError(mes)
+
+    entry = scan_limits[patchset_index]
+    if entry is None:
+        return None
+    if not isinstance(entry, list):
+        mes = f"'scan_limits' entry for {patchset_label} must be a list of [min, max] pairs " \
+              f"or null, got {type(entry).__name__}!"
+        logger.critical(mes)
+        raise ValueError(mes)
+    if len(entry) != len(input_bins_ordered):
+        mes = f"'scan_limits' for {patchset_label} has {len(entry)} bins but the analysis has " \
+              f"{len(input_bins_ordered)}! The list must follow the channel order used by the rest of the card."
+        logger.critical(mes)
+        raise ValueError(mes)
+
+    limits_by_bin = {}
+    for bin_name, pair in zip(input_bins_ordered, entry):
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            mes = f"'scan_limits' for {patchset_label}, bin {bin_name}: expected a [min, max] pair, got {pair!r}!"
+            logger.critical(mes)
+            raise ValueError(mes)
+        try:
+            lo, hi = float(pair[0]), float(pair[1])
+        except (TypeError, ValueError):
+            mes = f"'scan_limits' for {patchset_label}, bin {bin_name}: values must be numbers, got {pair!r}!"
+            logger.critical(mes)
+            raise ValueError(mes)
+        if not (np.isfinite(lo) and np.isfinite(hi)):
+            mes = f"'scan_limits' for {patchset_label}, bin {bin_name}: values must be finite, got {pair!r}!"
+            logger.critical(mes)
+            raise ValueError(mes)
+        if lo > hi:
+            mes = f"'scan_limits' for {patchset_label}, bin {bin_name}: min ({lo}) is above max ({hi})!"
+            logger.critical(mes)
+            raise ValueError(mes)
+        limits_by_bin[bin_name] = (lo, hi)
+
+    missing = [b for b in bins_names if b not in limits_by_bin]
+    if missing:
+        mes = f"'scan_limits' for {patchset_label} is missing these model bins: {missing[:5]}" \
+              f"{' ...' if len(missing) > 5 else ''}"
+        logger.critical(mes)
+        raise ValueError(mes)
+
+    # reorder from the card's channel order into the model's, then convert the
+    # stored TOTAL yields into signal offsets around the central values
+    lows = np.array([limits_by_bin[b][0] for b in bins_names], dtype=float)
+    highs = np.array([limits_by_bin[b][1] for b in bins_names], dtype=float)
+
+    outside = [(b, lo, cv, hi) for b, lo, cv, hi in zip(bins_names, lows, central_values, highs)
+               if not (lo - 1e-6 <= cv <= hi + 1e-6)]
+    if outside:
+        b, lo, cv, hi = outside[0]
+        mes = f"'scan_limits' for {patchset_label}: central value of bin {b} ({cv}) lies outside its " \
+              f"limits [{lo}, {hi}] ({len(outside)} such bins). The limits are TOTAL yields, not signal offsets."
+        logger.critical(mes)
+        raise ValueError(mes)
+
+    return np.round(lows - central_values, 4), np.round(highs - central_values, 4)
+
+
+def apply_region_pinning(nSmin, nSmax, channels_and_bins, signal_leakage_CR, signal_leakage_VR, logger):
+    """Collapse the range of regions whose signal leakage is switched off.
+
+    Hardcoded ``scan_limits`` are harvested with leakage enabled everywhere and
+    nothing removed, so that one stored box stays valid whatever a later run
+    decides to pin or drop. This re-imposes the current run's choices on the
+    loaded box, exactly as :func:`get_scan_limits` would have: a region without
+    leakage gets a range of +/-1e-10, so its bins never move off their central
+    value.
+
+    Args:
+        nSmin (numpy.ndarray): Lower signal offsets per bin, model order.
+        nSmax (numpy.ndarray): Upper signal offsets per bin, model order.
+        channels_and_bins (list[tuple]): ``(channel, type, n_bins)`` tuples.
+        signal_leakage_CR (bool): Whether CR bins may carry signal.
+        signal_leakage_VR (bool): Whether VR bins may carry signal.
+        logger (logging.Logger): Logger for the summary message.
+
+    Returns:
+        tuple: ``(nSmin, nSmax, n_pinned)`` with the pinned bins collapsed.
+    """
+    nSmin = np.array(nSmin, dtype=float, copy=True)
+    nSmax = np.array(nSmax, dtype=float, copy=True)
+    n_bins = nSmin.shape[0]
+    pinned_types = []
+    if not signal_leakage_CR:
+        pinned_types.append('CR')
+    if not signal_leakage_VR:
+        pinned_types.append('VR')
+
+    n_pinned = 0
+    if pinned_types:
+        bin_offset = 0
+        for c, t, b in channels_and_bins:
+            if t in pinned_types:
+                nSmin[bin_offset:bin_offset + b] = -1e-10
+                nSmax[bin_offset:bin_offset + b] = 1e-10
+                n_pinned += b
+            bin_offset += b
+    if n_pinned:
+        logger.info(f'Pinning {n_pinned} of {n_bins} loaded bins '
+                    f'({"/".join(pinned_types)} leakage disabled for this run).')
+    return nSmin, nSmax, n_pinned
+
+
 def get_probe_mask(scan_mask, channels_and_bins, remove_channels):
     """Return the bins whose lower limit on S actually needs to be probed.
 

@@ -69,7 +69,49 @@ def set_global_determinism(seed):
 
 
 
-def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, probe_mask=None):
+def build_signal_modifiers(bin_vals, sig_rel_unc):
+    """Build the modifier list attached to an injected signal.
+
+    Used by BOTH the scan and the lower-limit probe, so the two cannot drift
+    apart: whatever uncertainty the scan evaluates the likelihood with, the
+    probe has to respect when deciding how negative the signal may go.
+
+    Args:
+        bin_vals (numpy.ndarray): Signal yields for the channel's bins.
+        sig_rel_unc (float): Relative uncertainty on the injected signal. When
+            negligible, only the ``lumi`` and ``mu_SIG`` modifiers are used.
+
+    Returns:
+        list[dict]: Modifiers for ``WorkspaceInterpreter.inject_signal``.
+    """
+    base = [
+        {
+            "data": None,
+            "name": "lumi",
+            "type": "lumi"
+        },
+        {
+            "data": None,
+            "name": "mu_SIG",
+            "type": "normfactor"
+        }
+    ]
+    if abs(sig_rel_unc) <= 1e-17:
+        return base
+    return [
+        {
+            "name": "Wolfgang_unc",
+            "type": "histosys",
+            "data": {
+                "hi_data": bin_vals * (1.0+sig_rel_unc),
+                "lo_data": [ float(np.max([0.0, bval*(1.0-sig_rel_unc)])) for bval in bin_vals]
+                },
+        },
+    ] + base
+
+
+def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, probe_mask=None,
+               sig_rel_unc=0.0):
     """Find, for each bin, the most negative injectable signal that keeps the likelihood well-defined.
 
     Starting from a candidate lower bound on the signal yield per bin
@@ -104,6 +146,12 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
             safety margin applied to a probed bin would otherwise put a
             positive floor under a bin that must hold exactly zero signal.
             Defaults to probing every bin.
+        sig_rel_unc (float, optional): Relative uncertainty on the injected
+            signal. The probe applies the same ``histosys`` modifier the scan
+            uses, so the limit it returns stays valid once that uncertainty is
+            in play; with a negative signal the up-variation is
+            ``S*(1+sig_rel_unc)``, i.e. more negative than the nominal.
+            Defaults to 0.0 (no uncertainty).
 
     Returns:
         numpy.ndarray: Array of the same shape as ``nSmin`` containing
@@ -154,9 +202,13 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                     # perform niter steps to find the lower limit on signal
                     for nn in range(niter):
                         # set signal for given bin
-                        inject_vals[bb] = np.round(bin_vals[bb] * mu+1e-4, 4) 
-                        # inject the signal to all bins
-                        interpreter.inject_signal(c, inject_vals)
+                        inject_vals[bb] = np.round(bin_vals[bb] * mu+1e-4, 4)
+                        # inject the signal to all bins, with the SAME modifiers the
+                        # scan will use - with a relative signal uncertainty the
+                        # histosys up-variation of a negative signal is more negative
+                        # than the nominal, so the limit has to be probed with it
+                        interpreter.inject_signal(c, inject_vals,
+                                                  modifiers=build_signal_modifiers(inject_vals, sig_rel_unc))
                         statistical_model = stat_wrapper(
                                                     background_only_model=interpreter.background_only_model,
                                                     signal_patch=interpreter.make_patch(),
@@ -480,49 +532,14 @@ class LikelihoodCalculatorWrapper():
         ii = 0
         for c, sr, b in self._channels_and_bins:
             bin_vals = np.array(S_yields[ii:ii + b])
-            if abs(self._sig_rel_unc) > 1e-17:
-                modifiers=[
-                    {
-                        "name": "Wolfgang_unc",
-                        "type": "histosys",
-                        "data": {
-                            "hi_data": bin_vals * (1.0+self._sig_rel_unc), 
-                            "lo_data": [ float(np.max([0.0, bval*(1.0-self._sig_rel_unc)])) for bval in bin_vals]  
-                            },
-                    },
-                    {
-                        "data": None,
-                        "name": "lumi",
-                        "type": "lumi"
-                    },
-                    {
-                        "data": None,
-                        "name": "mu_SIG",
-                        "type": "normfactor"
-                    }
-                ]
-            else:
-                modifiers=[
-                    {
-                        "data": None,
-                        "name": "lumi",
-                        "type": "lumi"
-                    },
-                    {
-                        "data": None,
-                        "name": "mu_SIG",
-                        "type": "normfactor"
-                    }
-                ]
-
             interpreter.inject_signal(
                 c,
                 bin_vals,
-                modifiers=modifiers,
+                modifiers=build_signal_modifiers(bin_vals, self._sig_rel_unc),
             )
 
             ii += b
-        return interpreter  
+        return interpreter
 
     def save_results(self, counter=None):
         """Append the buffered results to the output CSV file and clear the buffer.
