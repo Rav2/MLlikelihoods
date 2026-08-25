@@ -445,9 +445,11 @@ bkg_unc :
 # does not have to run again.
 #
 scan_limits_context :
-    # the settings scan_limits was probed with. The sampler recomputes the
+    # The settings scan_limits was probed with. The sampler recomputes the
     # limits when a run changes sig_rel_unc, or asks for a leakage spread
     # WIDER than the one harvested here.
+    # REQUIRED: without this block, or without a setting the run depends
+    # on, the limits cannot be verified and are recomputed.
     sig_rel_unc : 0.2
     signal_leakage_CR_spread : 0.5
     signal_leakage_VR_spread : 0.5
@@ -508,8 +510,31 @@ scan_limits :
         - [1.28556025, 22.42706025]   # SRmm_eMLLg_lowmet_deltaM_high_cuts-0
         - [1.587894256, 27.93909426]   # SRmm_eMLLh_hghmet_cuts-0
         - [2.260765253, 55.30346525]   # SRmm_eMLLh_lowmet_deltaM_high_cuts-0
-    # Selectrons_patchset.json: not hardcoded - computed at run time
-    - null
+    # Selectrons_patchset.json: 22 bins, same channel order as "channels" above
+    #   source: results-Selectrons_bkgonly-Selectrons_patchset-0.json (seed 1787661146)
+    -
+        - [183.5001, 550.5]   # CRVV_MT2_hghmet_cuts-0
+        - [136.0001, 408]   # CRVV_MT2_lowmet_cuts-0
+        - [109.0001, 327]   # CRtau_MT2_hghmet_cuts-0
+        - [399.5001, 1198.5]   # CRtau_MT2_lowmet_cuts-0
+        - [1026.5001, 3079.5]   # CRtop_MT2_hghmet_cuts-0
+        - [1553.0001, 4659]   # CRtop_MT2_lowmet_cuts-0
+        - [0.3936945816, 4.967994582]   # SRee_eMT2a_hghmet_cuts-0
+        - [0.6377391373, 11.18813914]   # SRee_eMT2a_lowmet_V2_cuts-0
+        - [0.3964576148, 4.981857615]   # SRee_eMT2b_hghmet_cuts-0
+        - [0.6462516217, 8.230851622]   # SRee_eMT2b_lowmet_V2_cuts-0
+        - [0.496806714, 11.48360671]   # SRee_eMT2c_hghmet_cuts-0
+        - [0.9439075732, 19.71900757]   # SRee_eMT2c_lowmet_V2_cuts-0
+        - [1.096985038, 18.48458504]   # SRee_eMT2d_hghmet_cuts-0
+        - [1.54268355, 26.71288355]   # SRee_eMT2d_lowmet_V2_cuts-0
+        - [0.9290218524, 13.64472185]   # SRee_eMT2e_hghmet_cuts-0
+        - [2.208931839, 41.04433184]   # SRee_eMT2e_lowmet_V2_cuts-0
+        - [0.8937990067, 10.46849901]   # SRee_eMT2f_hghmet_cuts-0
+        - [1.595461468, 31.97676147]   # SRee_eMT2f_lowmet_V2_cuts-0
+        - [0.9328840358, 12.66368404]   # SRee_eMT2g_hghmet_cuts-0
+        - [1.63422017, 40.17072017]   # SRee_eMT2g_lowmet_V2_cuts-0
+        - [0.8408191143, 10.20341911]   # SRee_eMT2h_hghmet_cuts-0
+        - [1.450692219, 20.55649222]   # SRee_eMT2h_lowmet_V2_cuts-0
     # Sleptons_patchset.json: 38 bins, same channel order as "channels" above
     #   source: results-Sleptons_bkgonly-Sleptons_patchset-0.json (seed 1787613735)
     -
@@ -551,5 +576,28 @@ scan_limits :
         - [2.080880023, 51.40368002]   # SRmm_eMT2g_lowmet_V2_cuts-0
         - [0.7628490472, 11.81374905]   # SRmm_eMT2h_hghmet_cuts-0
         - [1.837383062, 37.18618306]   # SRmm_eMT2h_lowmet_V2_cuts-0
-    # Smuons_patchset.json: not hardcoded - computed at run time
-    - null
+    # Smuons_patchset.json: 22 bins, same channel order as "channels" above
+    #   source: results-Smuons_bkgonly-Smuons_patchset-0.json (seed 1787662724)
+    -
+        - [183.5001, 550.5]   # CRVV_MT2_hghmet_cuts-0
+        - [136.0001, 408]   # CRVV_MT2_lowmet_cuts-0
+        - [109.0001, 327]   # CRtau_MT2_hghmet_cuts-0
+        - [399.5001, 1198.5]   # CRtau_MT2_lowmet_cuts-0
+        - [1026.5001, 3079.5]   # CRtop_MT2_hghmet_cuts-0
+        - [1553.0001, 4659]   # CRtop_MT2_lowmet_cuts-0
+        - [0.4470334784, 12.23463348]   # SRmm_eMT2a_hghmet_cuts-0
+        - [0.6807060438, 7.311706044]   # SRmm_eMT2a_lowmet_V2_cuts-0
+        - [0.5976597204, 7.02075972]   # SRmm_eMT2b_hghmet_cuts-0
+        - [0.5680329475, 8.839832948]   # SRmm_eMT2b_lowmet_V2_cuts-0
+        - [0.6261987211, 14.13049872]   # SRmm_eMT2c_hghmet_cuts-0
+        - [0.9156288538, 19.57772885]   # SRmm_eMT2c_lowmet_V2_cuts-0
+        - [1.200894138, 18.00409414]   # SRmm_eMT2d_hghmet_cuts-0
+        - [1.97572065, 32.87822065]   # SRmm_eMT2d_lowmet_V2_cuts-0
+        - [1.072231828, 14.36053183]   # SRmm_eMT2e_hghmet_cuts-0
+        - [3.191912935, 52.95891294]   # SRmm_eMT2e_lowmet_V2_cuts-0
+        - [1.015419411, 16.07661941]   # SRmm_eMT2f_hghmet_cuts-0
+        - [2.09599425, 54.47939425]   # SRmm_eMT2f_lowmet_V2_cuts-0
+        - [1.195176514, 15.97567651]   # SRmm_eMT2g_hghmet_cuts-0
+        - [2.080880023, 51.40368002]   # SRmm_eMT2g_lowmet_V2_cuts-0
+        - [0.7628490472, 11.81374905]   # SRmm_eMT2h_hghmet_cuts-0
+        - [1.837383062, 37.18618306]   # SRmm_eMT2h_lowmet_V2_cuts-0
