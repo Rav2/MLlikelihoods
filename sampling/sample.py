@@ -31,6 +31,7 @@ import argparse
 from scipy.linalg import LinAlgError
 from default_params import default_param_dict
 jax.config.update('jax_platforms', 'cpu')
+silence_spey_banner()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 #

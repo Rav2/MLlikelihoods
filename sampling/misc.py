@@ -63,3 +63,18 @@ def setup_logger(log_dir="logs"):
 #log.info("Logger initialized successfully.")
 #log.warning("This is a warning message.")
 #log.error("This is an error message.")
+
+
+def silence_spey_banner():
+    """Stop spey printing its citation banner at interpreter exit.
+
+    spey registers the reminder with atexit and offers no switch for it, so the
+    only clean way to drop it is to unregister the hook. Purely cosmetic: it
+    otherwise lands in the middle of every log and every piped command.
+    (SPEY_CHECKUPDATE=OFF separately silences the "newer version" warning.)
+    """
+    try:
+        import atexit, spey
+        atexit.unregister(spey._print_thanks)
+    except Exception:
+        pass    # private API; if it ever moves, just leave the banner alone

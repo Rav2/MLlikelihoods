@@ -129,6 +129,7 @@ def main():
     args = ap.parse_args()
 
     import pyhf, spey
+    from misc import silence_spey_banner; silence_spey_banner()
     pyhf.set_backend('numpy', 'minuit')
     from spey_pyhf.helper_functions import WorkspaceInterpreter
 
