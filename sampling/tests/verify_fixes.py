@@ -532,6 +532,21 @@ def test_context_guard_missing_context():
         raise AssertionError('a non-mapping context should raise')
 
 
+def test_loaded_message_reports_harvest_not_run():
+    """The LOADED line must quote the HARVEST settings, never this run's."""
+    src = open('sample.py').read()
+    start = src.index('Scan limits mode: LOADED')
+    block = src[max(0, start - 800):start + 400]
+    assert 'harvest settings UNKNOWN' in block, \
+        'no distinct wording when the harvest context is missing'
+    assert "limits_ctx.get('sig_rel_unc'" in block, \
+        'the LOADED line does not read sig_rel_unc from the harvest context'
+    # the old bug: interpolating the run's own settings and calling them "harvested at"
+    assert "harvested at \"\n" not in block
+    assert "sig_rel_unc={param_dict['sig_rel_unc']}" not in block, \
+        "the LOADED line still labels this run's sig_rel_unc as the harvested one"
+
+
 def test_context_guard_wired_into_sample():
     src = open('sample.py').read()
     assert 'check_scan_limits_context(' in src, 'sample.py never checks the harvest context'

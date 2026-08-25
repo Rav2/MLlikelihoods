@@ -617,11 +617,17 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 if hardcoded_limits is not None:
                     nSmin, nSmax = hardcoded_limits
                     param_dict['scan_limits_source'] = 'parameter card'
+                    # report the HARVEST settings, not this run's: they are only equal
+                    # because the guard passed, and with no context they are unknown
+                    limits_ctx = param_dict.get('scan_limits_context')
+                    if limits_ctx:
+                        provenance = (f"harvested at sig_rel_unc={limits_ctx.get('sig_rel_unc', '?')}, "
+                                      f"CR/VR spread {limits_ctx.get('signal_leakage_CR_spread', '?')}/"
+                                      f"{limits_ctx.get('signal_leakage_VR_spread', '?')}")
+                    else:
+                        provenance = "harvest settings UNKNOWN, NOT verified against this run"
                     logger.info(f"Scan limits mode: LOADED from the parameter card "
-                                f"({len(bins_names)} bins, harvested at "
-                                f"sig_rel_unc={param_dict['sig_rel_unc']}, "
-                                f"CR/VR spread {param_dict['signal_leakage_CR_spread']}/"
-                                f"{param_dict['signal_leakage_VR_spread']}). "
+                                f"({len(bins_names)} bins, {provenance}). "
                                 f"Skipping the lower-limit probe.")
                     # The stored box covers every bin, including ones this run pins or
                     # removes, so that it stays reusable. Re-impose this run's choices.
