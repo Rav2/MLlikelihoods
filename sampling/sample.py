@@ -696,7 +696,6 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                                             central_values+nSmin, 
                                             central_values+nSmax, 
                                             central_values+nSmin_orig,
-                                            [list(p + central_values) for p in p0s],
                                             logger)
                 # save metadata in case of scan failure
                 metadata_path = join(dirpath, 'metadata.json')

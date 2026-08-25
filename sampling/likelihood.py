@@ -25,6 +25,12 @@ import random
 import gc
 
 
+#: Value written in place of a likelihood that came back NaN or infinite.
+#: Such a row carries no usable information, so merge_results drops it.
+NAN_PLACEHOLDER = 1e10
+#: Number of likelihood columns at the end of every results row.
+N_LIKELIHOOD_COLUMNS = 8
+
 #: Criteria that name a single likelihood directly.
 EXPLICIT_CRITERIA = ('nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1')
 #: Every criterion accepted by :class:`ScanWrapper` ('mu1' picks one of the
@@ -568,10 +574,10 @@ class LikelihoodCalculatorWrapper():
             infinite (``-inf`` is mapped to ``-1e10``).
         """
         if isnan(likelihood):
-            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +1e10')
-            return np.float64(1e10)
+            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +{NAN_PLACEHOLDER:.0e}')
+            return np.float64(NAN_PLACEHOLDER)
         elif isinf(likelihood):
-            replacement = np.float64(-1e10) if likelihood < 0 else np.float64(1e10)
+            replacement = np.float64(-NAN_PLACEHOLDER) if likelihood < 0 else np.float64(NAN_PLACEHOLDER)
             self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as {replacement:+.0e}')
             return replacement
         else:

@@ -603,6 +603,91 @@ def test_cards_carry_context():
                 f'{f}: card sig_rel_unc {c["sig_rel_unc"]} != harvested {ctx["sig_rel_unc"]}'
 
 
+def test_metadata_has_no_starting_points():
+    """Starting points are reproducible from the seed; do not store them."""
+    import utils, inspect
+    sig = inspect.signature(utils.create_metadata)
+    assert 'points' not in sig.parameters, 'create_metadata still takes a points argument'
+    src = inspect.getsource(utils.create_metadata)
+    assert "metadata['starting_points']" not in src, 'starting_points is still written'
+    src_sample = open('sample.py').read()
+    assert '[list(p + central_values) for p in p0s]' not in src_sample, \
+        'sample.py still builds the starting-point list for the metadata'
+
+
+def test_find_placeholder_rows():
+    import utils, numpy as np
+    from likelihood import NAN_PLACEHOLDER as P
+    # 2 bin columns + 8 likelihood columns
+    rows = np.array([
+        [1.0, 2.0] + [3.0]*8,          # clean
+        [1.0, 2.0] + [3.0]*7 + [P],    # placeholder in the last nLL
+        [1.0, 2.0] + [-P] + [3.0]*7,   # negative placeholder (was -inf)
+        [P,   2.0] + [3.0]*8,          # a huge YIELD is not a placeholder
+    ])
+    m = utils.find_placeholder_rows(rows)
+    assert list(m) == [False, True, True, False], list(m)
+    assert list(utils.find_placeholder_rows(np.empty((0, 10)))) == []
+
+
+def test_merge_results_drops_placeholders():
+    """The merged file must lose placeholder rows, and min/max must ignore them."""
+    import utils, numpy as np, tempfile, os
+    from likelihood import NAN_PLACEHOLDER as P
+
+    msgs = []
+    class Rec:
+        def info(self, m): msgs.append(('info', m))
+        def warning(self, m): msgs.append(('warn', m))
+        def error(self, m): msgs.append(('error', m))
+        def critical(self, m): msgs.append(('crit', m))
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'table-0.csv')
+        with open(p, 'w') as f:
+            f.write('a,b,' + ','.join(f'nLL{i}' for i in range(8)) + '\n')
+            np.savetxt(f, np.array([
+                [1.0, 5.0] + [2.0]*8,
+                [9.0, 9.0] + [2.0]*7 + [P],   # must be dropped
+                [3.0, 7.0] + [4.0]*8,
+            ]), delimiter=',')
+        out, mn, mx = utils.merge_results([p], keep_files=True, logger=Rec())
+        rows = [l for l in open(out).read().strip().split('\n')[1:] if l.strip()]
+        assert len(rows) == 2, f'expected 2 surviving rows, got {len(rows)}'
+        # the dropped row held the largest yields; min/max must not see them
+        assert mx[0] == 3.0 and mx[1] == 7.0, (mx[0], mx[1])
+        assert max(mx[-8:]) == 4.0, 'placeholder leaked into the recorded maximum'
+        assert any('Dropped 1 of 3 rows' in m for _, m in msgs), msgs
+
+
+def test_merge_results_all_rows_dropped():
+    """If nothing survives, say so loudly and return empty min/max."""
+    import utils, numpy as np, tempfile, os
+    from likelihood import NAN_PLACEHOLDER as P
+
+    msgs = []
+    class Rec:
+        def info(self, m): msgs.append(('info', m))
+        def warning(self, m): msgs.append(('warn', m))
+        def error(self, m): msgs.append(('error', m))
+        def critical(self, m): msgs.append(('crit', m))
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'table-0.csv')
+        with open(p, 'w') as f:
+            f.write('a,b,' + ','.join(f'nLL{i}' for i in range(8)) + '\n')
+            np.savetxt(f, np.array([[1.0, 5.0] + [P]*8,
+                                    [3.0, 7.0] + [2.0]*7 + [P]]), delimiter=',')
+        out, mn, mx = utils.merge_results([p], keep_files=True, logger=Rec())
+        assert mn == [] and mx == [], (mn, mx)
+        body = [l for l in open(out).read().strip().split('\n')[1:] if l.strip()]
+        assert body == [], 'rows survived that should not have'
+        crit = [m for lvl, m in msgs if lvl == 'crit']
+        assert crit, 'no critical message when every row was dropped'
+        assert 'NO USABLE ROWS LEFT' in crit[0]
+        assert 'nLL7' in crit[0], 'the message does not name the likelihood columns'
+
+
 def test_merge_results_roundtrip():
     import utils
     with tempfile.TemporaryDirectory() as d:

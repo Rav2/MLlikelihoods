@@ -64,7 +64,11 @@ for d in sorted(glob.glob(os.path.join(root, '*-*'))):
     report('mu0 likelihood constant within a scan',
            all(df[c].nunique() <= meta['scans'] + 1 for c in ['nLL_exp_mu0', 'nLL_obs_mu0']))
     report('metadata has max-likelihood values', len(meta.get('nLL_obs_max') or []) > 0)
-    report('starting points recorded', len(meta.get('starting_points') or []) == meta['scans'])
+    report('starting points NOT stored in metadata', 'starting_points' not in meta)
+    # the placeholder marks a likelihood that came back NaN/inf; merge_results
+    # drops those rows, so a finished file must not contain any
+    report('no NaN placeholder survived the merge',
+           not bool((df[lik_cols].abs() >= 1e10 * (1 - 1e-9)).any().any()))
 
     print(f'  info: criterion={meta["scan_criterion"]}, start={meta["start_method"]}, '
           f'fit_bkg={meta["fit_bkg"]}, sig_rel_unc={meta["sig_rel_unc"]}')

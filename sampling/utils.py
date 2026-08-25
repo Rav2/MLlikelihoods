@@ -675,6 +675,30 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
                                         channels_and_bins=channels_and_bins, logger=logger)
 
 
+def find_placeholder_rows(data):
+    """Flag rows whose likelihood columns hold the NaN/inf placeholder.
+
+    When a likelihood comes back NaN or infinite,
+    :meth:`~likelihood.LikelihoodCalculatorWrapper.check_for_nan` writes
+    ``+/-NAN_PLACEHOLDER`` instead. Such a row carries no usable likelihood, and
+    left in place it would also poison the per-column min/max recorded in the
+    metadata.
+
+    Args:
+        data (numpy.ndarray): Result rows, ``(n_rows, n_bins + 8)``.
+
+    Returns:
+        numpy.ndarray: Boolean mask, ``True`` for rows to discard.
+    """
+    from likelihood import NAN_PLACEHOLDER, N_LIKELIHOOD_COLUMNS
+    if data.size == 0:
+        return np.zeros(len(data), dtype=bool)
+    likelihoods = data[:, -N_LIKELIHOOD_COLUMNS:]
+    # compare with a little slack: the value survives a round trip through the
+    # CSV, but exact float equality is a poor thing to rely on
+    return np.any(np.abs(likelihoods) >= NAN_PLACEHOLDER * (1.0 - 1e-9), axis=1)
+
+
 def merge_results(infiles, keep_files=True, suffix='', logger=None):
     if logger is None:
         logger = setup_logger()
@@ -699,28 +723,70 @@ def merge_results(infiles, keep_files=True, suffix='', logger=None):
             outpath = join(dirname(infiles[0]), "results-{}.csv".format(ii))
         min_values = []
         max_values = []
+        header = ''
+        n_total = 0
+        n_dropped = 0
+        n_written = 0
         with open(outpath, 'a') as fout:
             with open(infiles[0], 'r') as fin:
-                fout.write(fin.readline())
+                header = fin.readline()
+                fout.write(header)
             for ff, fpath in enumerate(infiles):
                 with open(fpath, 'r') as fin:
                     loaded_data = np.loadtxt(fin, float, skiprows=1, delimiter=',')
                     if len(loaded_data.shape) == 1:
                         loaded_data = np.reshape(loaded_data, (1, loaded_data.shape[0]))
+                    n_total += len(loaded_data)
+
+                    # A row whose likelihood came back NaN/inf carries the
+                    # placeholder instead. Drop it BEFORE the min/max are taken,
+                    # otherwise the placeholder becomes the recorded maximum.
+                    bad = find_placeholder_rows(loaded_data)
+                    if bad.any():
+                        n_dropped += int(bad.sum())
+                        loaded_data = loaded_data[~bad]
+
+                    if len(loaded_data) == 0:
+                        continue
                     min_values.append(np.amin(loaded_data, axis=0))
                     max_values.append(np.amax(loaded_data, axis=0))
                     np.savetxt(fout, loaded_data, fmt="%+010.8f", delimiter=',')
+                    n_written += len(loaded_data)
                 if not keep_files:
                     try:
                         os.remove(fpath)
                     except FileNotFoundError:
                         logger.error(f"File {basename(fpath)} cannot be deleted because it doesn't exist!.")
+
+        if n_dropped:
+            logger.warning(f'Dropped {n_dropped} of {n_total} rows whose likelihood was NaN or '
+                           f'infinite (written as the +/-1e10 placeholder). {n_written} rows kept.')
+        else:
+            logger.info(f'{n_written} rows written, none carried a NaN placeholder.')
+
+        if n_written == 0:
+            names = [c.strip() for c in header.strip().split(',')][-8:]
+            logger.critical(
+                f'NO USABLE ROWS LEFT: all {n_total} sampled points had a NaN or infinite '
+                f'likelihood and were dropped, so {basename(outpath)} contains only its header. '
+                f'The affected columns are {names}. This usually means the scan explored yields '
+                f'where the model is undefined - check the scan limits (a lower limit that is too '
+                f'negative), the "low_lim_samples" probe, and the starting points. Per-column '
+                f'min/max cannot be computed and are left empty in the metadata.')
+            return outpath, [], []
+
         min_values = np.array(min_values)
         max_values = np.array(max_values)
         return outpath, np.amin(min_values, axis=0).tolist(), np.amax(max_values, axis=0).tolist()
 
 
-def create_metadata(param_dict, bkg_yields, bkg_unc, obs_yields, lower_limits, upper_limits, minS_orig, points, logger):
+def create_metadata(param_dict, bkg_yields, bkg_unc, obs_yields, lower_limits, upper_limits, minS_orig, logger):
+    """Build the metadata dictionary saved alongside a results file.
+
+    NOTE: the MCMC starting points are deliberately NOT stored. They are one
+    arbitrary draw per chain, they are reproducible from the recorded seed and
+    start_method, and for a wide scan they dominate the size of the file.
+    """
     metadata = copy.deepcopy(param_dict)
     if param_dict['analysis'] in analysis_name_dict.keys():
         metadata['analysis_altname'] = analysis_name_dict[param_dict['analysis']]
@@ -735,7 +801,6 @@ def create_metadata(param_dict, bkg_yields, bkg_unc, obs_yields, lower_limits, u
     metadata['lower_limits'] = list(lower_limits)
     metadata['upper_limits'] = list(upper_limits)
     metadata['initial_lower_limits'] = list(minS_orig)
-    metadata['starting_points'] = points
     return metadata
 
 
