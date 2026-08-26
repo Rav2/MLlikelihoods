@@ -162,6 +162,18 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
     Returns:
         numpy.ndarray: Array of the same shape as ``nSmin`` containing
         the refined minimal signal yield allowed for each bin.
+
+    Note:
+        The first bisection step injects the full candidate limit (``mu=1``).
+        That candidate comes from the background yields, their uncertainties
+        and the observed counts, so a sound model is expected to be defined
+        there. If the likelihood comes back NaN or infinite already at
+        ``mu=1``, the bin is logged with an ``ERROR`` naming the bin, the
+        injected signal and the likely causes (card yields not matching the
+        workspace, a wrong channel-to-bin mapping, a degenerate bin), and a
+        summary ``ERROR`` listing every such bin is emitted before returning.
+        The probe still bisects downwards, but the limit it returns for those
+        bins is a reduced fallback rather than the true one.
     """
     if niter < 1:
         logger.warning(f"The value of the 'low_lim_samples' parameter is {niter} < 1! No negative signal in SRs will be injected.")
@@ -180,6 +192,11 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
             raise ValueError(mes)
     # bins that are not probed keep the limit they came in with
     minimalS[~probe_mask] = nSmin[~probe_mask]
+
+    # A healthy model evaluates at mu=1 for every bin. Track the ones that do not,
+    # so a run where the inputs disagree with the workspace is obvious.
+    n_failed_at_mu1 = 0
+    failed_bins_at_mu1 = []
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -227,6 +244,29 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                         
                         # print(c, mu, bin_vals[bb] * mu, nLL_exp_mu1, nLL_obs_mu1, inject_vals)
                         if isnan(nLL_exp_mu1) or isnan(nLL_obs_mu1) or isinf(nLL_exp_mu1) or isinf(nLL_obs_mu1):
+                            if nn == 0:
+                                # mu=1 is the candidate limit get_scan_limits derived from
+                                # B, dB and obs. A sound model should evaluate there; if it
+                                # does not, the inputs and the model disagree and every
+                                # limit that follows is a fallback, not a measurement.
+                                n_failed_at_mu1 += 1
+                                failed_bins_at_mu1.append(f'{c}-{bb}')
+                                bad = ', '.join(
+                                    n for n, v in (('nLL_exp_mu1', nLL_exp_mu1),
+                                                   ('nLL_obs_mu1', nLL_obs_mu1))
+                                    if isnan(v) or isinf(v))
+                                logger.error(
+                                    f'[NON-FINITE LIKELIHOOD AT mu=1] bin {c}-{bb}: injecting the full '
+                                    f'candidate signal S={inject_vals[bb]:+.4f} makes {bad} non-finite '
+                                    f'(exp={nLL_exp_mu1}, obs={nLL_obs_mu1}). For a sound model this '
+                                    f'should not happen: S comes from the background yields, their '
+                                    f'uncertainties and the observed counts, so the model is expected to '
+                                    f'be defined there. Likely causes: bkg_yields/bkg_unc in the card do '
+                                    f'not match this workspace (a too large dB drives the total yield '
+                                    f'negative), the channel-to-bin mapping is off, or the workspace '
+                                    f'itself is degenerate in this bin. The probe will now bisect '
+                                    f'downwards and return a REDUCED limit for this bin - usable, but '
+                                    f'not the true one. Verify the inputs before trusting this scan.')
                             mu_old = mu
                             mu = mu/2.0
                         else:
@@ -242,6 +282,17 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                         minimalS[ii+bb] = up_lim[ii+bb]
                 ii += b
     del interpreter, inject_vals
+
+    if n_failed_at_mu1:
+        logger.error(
+            f'[NON-FINITE LIKELIHOOD AT mu=1] {n_failed_at_mu1} of {nbins} probed bins '
+            f'({100.0*n_failed_at_mu1/max(nbins, 1):.1f}%) could not be evaluated at the '
+            f'candidate limit: {", ".join(failed_bins_at_mu1)}. Their limits were bisected '
+            f'downwards and are REDUCED, not the true ones, so the scan will explore a '
+            f'narrower range there. A sound model should be defined at the candidate limit - '
+            f'check that bkg_yields/bkg_unc in the parameter card match this workspace and '
+            f'that the channel ordering is correct before using these results.')
+
     return minimalS
 
 

@@ -424,6 +424,84 @@ def test_probe_receives_signal_uncertainty():
     assert mods[0]['type'] == 'histosys', f'no signal-uncertainty modifier in the probe: {mods}'
 
 
+def _run_probe_with_likelihood(lik, nSmin, cab, niter, recorder):
+    """Drive find_min_S against a stub model whose likelihood is ``lik(call_index)``."""
+    import likelihood, numpy as np
+
+    class FakeInterpreter:
+        background_only_model = {}
+        def inject_signal(self, channel, vals, modifiers=None):
+            pass
+        def make_patch(self):
+            return {}
+
+    state = {'n': 0}
+
+    class FakeModel:
+        class backend:
+            class manager:
+                backend = None
+        def likelihood(self, poi_test, expected):
+            # two calls (apriori, observed) per bisection step share one index
+            v = lik(state['n'] // 2)
+            state['n'] += 1
+            return v
+
+    orig = likelihood.WorkspaceInterpreter
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        return likelihood.find_min_S(niter, {}, lambda **kw: FakeModel(),
+                                     np.array(nSmin, dtype=float), cab, recorder)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+
+
+class _Rec:
+    """Minimal logger stand-in that keeps every message by level."""
+    def __init__(self):
+        self.msgs = []
+    def info(self, m): self.msgs.append(('info', m))
+    def warning(self, m): self.msgs.append(('warning', m))
+    def error(self, m): self.msgs.append(('error', m))
+    def critical(self, m): self.msgs.append(('critical', m))
+    def errors(self): return [m for lvl, m in self.msgs if lvl == 'error']
+
+
+def test_probe_reports_failure_at_mu1():
+    """A non-finite likelihood at the candidate limit is a model/input problem: log ERROR."""
+    rec = _Rec()
+    # NaN on the first (mu=1) step, finite afterwards: the probe recovers at
+    # mu=0.5 but the failure at the candidate limit must still be reported
+    _run_probe_with_likelihood(lambda i: float('nan') if i == 0 else 1.0,
+                               [-5.0], [('SRx', 'SR', 1)], 4, rec)
+    errs = rec.errors()
+    assert errs, 'no error logged when the likelihood was non-finite at mu=1'
+    per_bin = [m for m in errs if 'SRx-0' in m and 'NON-FINITE LIKELIHOOD AT mu=1' in m]
+    assert per_bin, f'no per-bin error naming the offending bin: {errs}'
+    # the message has to be descriptive: what failed, and what to check
+    assert 'nLL_exp_mu1' in per_bin[0], 'the message does not say which likelihood failed'
+    assert 'bkg_yields' in per_bin[0], 'the message does not point at the likely cause'
+    assert 'REDUCED' in per_bin[0], 'the message does not warn the limit is a fallback'
+    summary = [m for m in errs if '1 of 1 probed bins' in m]
+    assert summary, f'no end-of-probe summary of the failed bins: {errs}'
+
+
+def test_probe_silent_when_model_is_sound():
+    """No error when every bin evaluates at mu=1 - the check must not cry wolf."""
+    rec = _Rec()
+    _run_probe_with_likelihood(lambda i: 1.0, [-5.0, -3.0],
+                               [('SRx', 'SR', 2)], 3, rec)
+    assert not rec.errors(), f'errors logged for a healthy model: {rec.errors()}'
+
+
+def test_probe_failure_below_mu1_is_not_an_error():
+    """Bisection steps below mu=1 are expected to fail; only mu=1 is an error."""
+    rec = _Rec()
+    _run_probe_with_likelihood(lambda i: 1.0 if i == 0 else float('nan'),
+                               [-5.0], [('SRx', 'SR', 1)], 4, rec)
+    assert not rec.errors(), f'a sub-mu=1 failure was reported as an error: {rec.errors()}'
+
+
 def test_region_pinning_applied_to_loaded_limits():
     """A loaded box is general; the run's own pinning must be re-imposed on it."""
     import utils, numpy as np
