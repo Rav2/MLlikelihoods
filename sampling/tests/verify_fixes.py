@@ -424,6 +424,65 @@ def test_probe_receives_signal_uncertainty():
     assert mods[0]['type'] == 'histosys', f'no signal-uncertainty modifier in the probe: {mods}'
 
 
+def test_mu_limits_ignore_pinned_bins():
+    """Pinned bins must not drive the mu estimate - they cannot move at all.
+
+    Reproduces a real 1911.06660 run: CR leakage off, so the three CR bins come
+    out of apply_region_pinning with the +/-1e-10 stub. Left in the estimate,
+    that stub cancels the 1e-10 guard term: the lower bound divides by zero and
+    returns inf, and the upper bound collapses to 0.5, so the run threw a
+    RuntimeWarning and fell back to (0, 1).
+    """
+    import utils, numpy as np, warnings
+
+    msgs = []
+    class Rec:
+        def info(self, m): msgs.append(m)
+        def debug(self, m): pass
+        def warning(self, m): msgs.append(m)
+        def error(self, m): msgs.append(m)
+        def critical(self, m): msgs.append(m)
+
+    # QCR1, QCR2, SR1, SR2, WCR - the CR bins pinned on their observed counts
+    central = np.array([72.0, 27.0, 6.0, 10.2, 1099.0])
+    nSmin = np.array([-1e-10, -1e-10, -6.0, -8.5, -1e-10])
+    nSmax = np.array([1e-10, 1e-10, 40.7423, 5.3, 1e-10])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')          # a divide by zero now fails the test
+        lo, hi = utils.find_mu_limits(nSmin, nSmax, central, Rec())
+
+    assert np.isfinite(lo), f'mu_min is not finite: {lo}'
+    assert np.isfinite(hi), f'mu_max is not finite: {hi}'
+    assert lo < hi, f'estimate collapsed: ({lo}, {hi})'
+    assert not any('Setting initial limits to (0, 1)' in m for m in msgs), \
+        f'fell back instead of estimating: {msgs}'
+    # the binding lower bound is the SR bin that can go furthest down
+    assert abs(lo - max(72.0/-1e-10*0 + central[i]/nSmin[i] for i in (2, 3))) < 1e-6, lo
+
+    # and with nothing pinned the answer must be exactly what it was before
+    lo2, hi2 = utils.find_mu_limits(nSmin[2:4], nSmax[2:4], central[2:4], Rec())
+    assert abs(lo2 - lo) < 1e-9 and abs(hi2 - hi) < 1e-9, (lo, hi, lo2, hi2)
+
+
+def test_mu_limits_all_pinned():
+    """Every bin pinned: warn and fall back, never divide by zero."""
+    import utils, numpy as np, warnings
+    msgs = []
+    class Rec:
+        def info(self, m): pass
+        def debug(self, m): pass
+        def warning(self, m): msgs.append(m)
+        def error(self, m): msgs.append(m)
+        def critical(self, m): msgs.append(m)
+    n = np.array([-1e-10, -1e-10]); x = np.array([1e-10, 1e-10])
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        lo, hi = utils.find_mu_limits(n, x, np.array([5.0, 7.0]), Rec())
+    assert np.isfinite(lo) and np.isfinite(hi), (lo, hi)
+    assert len(msgs) >= 2, msgs
+
+
 def test_region_pinning_applied_to_loaded_limits():
     """A loaded box is general; the run's own pinning must be re-imposed on it."""
     import utils, numpy as np

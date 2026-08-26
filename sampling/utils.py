@@ -538,10 +538,47 @@ def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_l
 
 
 def find_mu_limits(nSmin, nSmax, central_values, logger):
-    mu_min = np.max(central_values/(nSmin+1e-10))
-    x = [ (nSmax[i]+central_values[i])/(nSmax[i]+1e-10) for i in range(len(central_values)) ]
-    y = [ (x[i]-central_values[i]/(nSmax[i]+1e-10)) for i in range(len(central_values)) ]
-    mu_max = np.min(y)
+    """Estimate the mu_SIG range the scan box can support.
+
+    Only bins that can actually move constrain mu. A pinned bin - CR/VR
+    leakage switched off, so its range is the +/-1e-10 stub - carries no
+    information about how far mu may go, but it dominates both expressions
+    below if it is left in: its offset cancels the 1e-10 guard term, so the
+    lower bound divides by zero and the upper bound collapses to 0.5. Such
+    bins are therefore excluded rather than guarded against.
+    """
+    nSmin = np.asarray(nSmin, dtype=float)
+    nSmax = np.asarray(nSmax, dtype=float)
+    central_values = np.asarray(central_values, dtype=float)
+
+    # the +/-1e-10 stub a pinned bin carries is orders of magnitude below any
+    # real limit, so this separates pinned bins from bins with genuine room
+    MOVES = 1e-8
+    can_go_down = nSmin < -MOVES
+    can_go_up = nSmax > MOVES
+    n_pinned = int(np.sum(~(can_go_down | can_go_up)))
+    if n_pinned:
+        logger.debug(f'{n_pinned} pinned bins excluded from the mu bounds estimate.')
+
+    if np.any(can_go_down):
+        # likewise verbatim: central/(nSmin + 1e-10) over the bins that move
+        mu_min = np.max(central_values[can_go_down]/(nSmin[can_go_down] + 1e-10))
+    else:
+        logger.warning('No bin can take a negative signal, so mu has no lower bound to '
+                       'estimate. Falling back to 0.')
+        mu_min = 0.0
+
+    if np.any(can_go_up):
+        # the original expression, kept verbatim (1e-10 guard included) so that
+        # a run without pinned bins gets exactly the number it got before
+        up = nSmax[can_go_up]
+        cen = central_values[can_go_up]
+        x = (up + cen)/(up + 1e-10)
+        mu_max = np.min(x - cen/(up + 1e-10))
+    else:
+        logger.warning('No bin can take a positive signal, so mu has no upper bound to '
+                       'estimate. Falling back to 1.')
+        mu_max = 1.0
     logger.debug(f'Mu bounds initial estimate: ({mu_min}, {mu_max})')
     logger.debug(f'Central values: {central_values}')
     logger.debug(f'nSmin: {nSmin}')
