@@ -1,8 +1,9 @@
 #
 # author: Rafal Maselek
-# e-mail: rafal.maselek@lpsc.in2p3.fr
-# 
-# This file provides some functions used in sample.py
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file provides some functions used in sample.py.
 #
 
 import numpy as np 
@@ -15,6 +16,14 @@ import pandas as pd
 from name_dict import analysis_name_dict
 
 def get2nd(arr):
+    """Take the value out of a list of ``(bin_name, value)`` pairs.
+
+    Args:
+        arr (list[tuple]): Pairs of bin name and value, in bin order.
+
+    Returns:
+        numpy.ndarray: The values alone, in the same order.
+    """
     return np.array([b for a,b in arr])
 
 
@@ -83,6 +92,20 @@ def check_unknown_parameters(param_docs, logger):
 
 
 def get_mask(shape, channels_and_bins, scan_SRs, scan_CRs, scan_VRs):
+    """Build a per-bin boolean mask selecting whole region types.
+
+    Args:
+        shape (int): Total number of bins, i.e. the length of the mask.
+        channels_and_bins (list[tuple]): ``(channel, type, n_bins)`` per
+            channel, in bin order; ``type`` is ``'SR'``, ``'CR'`` or ``'VR'``.
+        scan_SRs (bool): Include the bins of signal regions.
+        scan_CRs (bool): Include the bins of control regions.
+        scan_VRs (bool): Include the bins of validation regions.
+
+    Returns:
+        numpy.ndarray: Boolean array of length ``shape``, True for the bins
+        whose region type was selected.
+    """
     mask = np.empty(shape, dtype=bool)
     ii = 0
     for c, t, b in channels_and_bins:
@@ -208,18 +231,26 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     """Decide whether hardcoded limits are still valid for this run's settings.
 
     Stored limits are only as good as the configuration they were probed with.
-    Two settings invalidate them outright:
+    Three settings invalidate them outright:
 
     * **signal uncertainty** - the probe injects the same ``histosys`` modifier
       the scan uses, so any change to ``sig_rel_unc`` can move the floor;
     * **a larger leakage spread** - a CR/VR bin's range is ``obs * spread``, so
-      asking for a wider spread than was harvested pushes the scan past the
-      range that was actually verified.
+      asking for a wider spread than was stored pushes the scan past the
+      range that was actually verified;
+    * **channel removal** (``removeCRsVRs`` / ``remove_channels``) - dropping a
+      channel changes the likelihood itself, so a floor probed against the full
+      model was never verified against the reduced one.
 
     A *smaller* spread is not unsafe - the stored box merely covers more than
     this run asked for - so it warns instead of forcing a recomputation. A
     region whose leakage is switched off is not checked at all: its bins are
     pinned on load and never move.
+
+    Note the asymmetry between pinning and removal. Pinning keeps the channel in
+    the workspace and freezes its bins, so the stored box still covers the
+    run; removal builds a different model. That is why the harvest is always run
+    with nothing removed, and why a run that removes channels recomputes.
 
     The check is HARD: limits are used only when every setting that matters for
     this run can be positively verified. A missing ``scan_limits_context``, or a
@@ -240,9 +271,10 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     """
     if context is None:
         logger.warning(f"'scan_limits' for {patchset_label} carries no 'scan_limits_context', "
-                       f"so it cannot be checked against this run's settings. Recomputing the "
-                       f"limits instead. Re-harvest with tools/harvest_limits.py to record the "
-                       f"context and get the speed-up back.")
+                       f"so the stored limits cannot be checked against this run's settings. "
+                       f"Computing them from scratch instead - the result is correct, just "
+                       f"slower. To keep the stored limits, add a 'scan_limits_context' block "
+                       f"to the card recording the settings they were computed with.")
         return False
     if not isinstance(context, dict):
         mes = f"'scan_limits_context' must be a mapping, got {type(context).__name__}!"
@@ -250,54 +282,95 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
         raise ValueError(mes)
 
     reasons = []
+    # Notes that only make sense if the limits actually get used. Collected
+    # rather than logged straight away: saying 'these stay valid' and then
+    # 'these do not apply' two lines later is worse than saying nothing.
+    advisories = []
 
-    harvested_sig = context.get('sig_rel_unc')
+    stored_sig = context.get('sig_rel_unc')
     current_sig = param_dict['sig_rel_unc']
-    if harvested_sig is None:
+    if stored_sig is None:
         reasons.append('sig_rel_unc not recorded in scan_limits_context, so it cannot be verified')
-    elif abs(float(harvested_sig) - float(current_sig)) > _CONTEXT_TOL:
-        reasons.append(f'signal uncertainty changed ({harvested_sig} at harvest, {current_sig} now)')
+    elif abs(float(stored_sig) - float(current_sig)) > _CONTEXT_TOL:
+        reasons.append(f'signal uncertainty changed ({stored_sig} in the card, {current_sig} in this run)')
 
     for region, leak_key, spread_key in (('CR', 'signal_leakage_CR', 'signal_leakage_CR_spread'),
                                          ('VR', 'signal_leakage_VR', 'signal_leakage_VR_spread')):
         if not param_dict[leak_key]:
             continue        # region is pinned on load, its spread is irrelevant
-        harvested = context.get(spread_key)
+        stored = context.get(spread_key)
         current = param_dict[spread_key]
-        if harvested is None:
+        if stored is None:
             # this run leaks signal into the region, so its spread matters and
             # an unrecorded one cannot be verified
             reasons.append(f'{spread_key} not recorded in scan_limits_context, so it cannot '
                            f'be verified ({region} leakage is enabled for this run)')
             continue
-        if float(current) > float(harvested) + _CONTEXT_TOL:
+        if float(current) > float(stored) + _CONTEXT_TOL:
             reasons.append(f'{region} leakage spread increased '
-                           f'({harvested} at harvest, {current} now)')
-        elif float(current) < float(harvested) - _CONTEXT_TOL:
-            logger.warning(f'{region} leakage spread is smaller than at harvest '
-                           f'({harvested} -> {current}), so the loaded limits cover a WIDER '
-                           f'range than this run asks for. Re-harvest to match it exactly.')
+                           f'({stored} in the card, {current} in this run)')
+        elif float(current) < float(stored) - _CONTEXT_TOL:
+            advisories.append(f'{region} leakage spread is smaller than the card was built '
+                              f'for ({stored} -> {current}), so the stored limits cover a WIDER '
+                              f'range than this run asks for. Harmless; the scan simply explores '
+                              f'more than requested in the {region}s.')
+
+    # Channel removal changes the MODEL, not just which bins get read. Pinning a
+    # region leaves its channel in the workspace and merely freezes its bins, so
+    # a box stored with everything present still covers it - that is why the
+    # harvest is deliberately run with nothing removed. Dropping a channel is a
+    # different thing: the likelihood the probe evaluated is not the likelihood
+    # the scan will use, so a stored floor is no longer a floor that was
+    # verified. Measured on 1911.06660 the SR floors come out identical either
+    # way, but "identical on the one analysis we checked" is not something to
+    # assume silently for the rest, so this is checked rather than trusted.
+    removal_keys = ('removeCRsVRs', 'remove_channels')
+    run_flag = bool(param_dict.get('removeCRsVRs'))
+    run_removed = sorted(param_dict.get('remove_channels') or [])
+    if any(context.get(k) is None for k in removal_keys):
+        if run_flag or run_removed:
+            reasons.append('this run removes channels but the card does not record '
+                           'removeCRsVRs / remove_channels, so its limits cannot be '
+                           'checked against the model this scan will actually build')
+    else:
+        stored_flag = bool(context.get('removeCRsVRs'))
+        stored_removed = sorted(context.get('remove_channels') or [])
+        if stored_flag != run_flag:
+            reasons.append(f'removeCRsVRs changed ({stored_flag} in the card, {run_flag} in this run)')
+        if stored_removed != run_removed:
+            reasons.append(f'remove_channels changed ({stored_removed or "none"} in the card, '
+                           f'{run_removed or "none"} in this run)')
 
     # low_lim_samples is a RESOLUTION, not a validity condition. The probe
     # bisects the candidate floor, so more samples can only find a floor at
     # least as low as fewer samples did - never an invalid one. A run asking
-    # for more than was harvested therefore gets a usable but coarser box, and
+    # for more than was stored therefore gets a usable but coarser box, and
     # on the bins where the probe had to bisect at all that costs real negative
     # range. Worth saying out loud; not worth an hours-long recomputation.
-    harvested_lls = context.get('low_lim_samples')
+    stored_lls = context.get('low_lim_samples')
     current_lls = param_dict.get('low_lim_samples')
-    if (harvested_lls is not None and current_lls is not None
-            and int(current_lls) > int(harvested_lls)):
-        logger.warning(
-            f'Hardcoded limits for {patchset_label} were probed with low_lim_samples='
-            f'{harvested_lls} but this run asks for {current_lls}. The stored floors are '
-            f'valid, just resolved on a coarser bisection grid: any bin whose floor had to '
-            f'be walked up keeps less negative range than this run would have found. '
-            f'Re-harvest with --low-lim-samples {current_lls} to recover it.')
+    if (stored_lls is not None and current_lls is not None
+            and int(current_lls) > int(stored_lls)):
+        advisories.append(
+            f'The limits stored in the card for {patchset_label} were computed with '
+            f'low_lim_samples={stored_lls}, but this run asks for {current_lls}. They stay '
+            f'VALID and are used as they are - a smaller low_lim_samples only means a coarser '
+            f'search, so a bin whose lower limit had to be reduced may keep slightly less '
+            f'negative signal than this run would have found. To use the finer search instead, '
+            f'set low_lim_samples={stored_lls} to match the card, or delete the card\'s '
+            f"'scan_limits' block so this run computes the limits itself (slow).")
+
+    if not reasons:
+        for note in advisories:
+            logger.warning(note)
 
     if reasons:
-        logger.warning(f'Hardcoded scan limits for {patchset_label} are NOT valid for this run: '
-                       + '; '.join(reasons) + '. Recomputing them instead.')
+        logger.warning(f'The scan limits stored in the card for {patchset_label} do not apply '
+                       f'to this run: ' + '; '.join(reasons) + '. Computing them from scratch '
+                       f'instead - correct, but it can take a long time on a large workspace. '
+                       f'The values it finds are printed below as "Scan limits" and saved in the '
+                       f'run metadata as lower_limits / upper_limits; copy them into the card, '
+                       f"together with a matching 'scan_limits_context', to reuse them.")
         return False
     return True
 
@@ -384,6 +457,19 @@ def get_probe_mask(scan_mask, channels_and_bins, remove_channels):
 
 
 def print_yield_table(bins_names, bins_is_signal, bkg_yields, bkg_unc, obs_yields, logger):
+    """Log the per-bin background, uncertainty and observed count as a table.
+
+    Args:
+        bins_names (list[str]): Bin names, in bin order.
+        bins_is_signal (list): Per-bin marker of whether the bin is in an SR.
+        bkg_yields (list[tuple]): ``(bin_name, background)`` pairs.
+        bkg_unc (list[tuple]): ``(bin_name, uncertainty)`` pairs.
+        obs_yields (list[tuple]): ``(bin_name, observed)`` pairs.
+        logger (logging.Logger): Logger the table is written to.
+
+    Returns:
+        str: The rendered table, for storing in the run metadata.
+    """
     logger.info('Yields:')
     table = PrettyTable()
     table.add_column('BIN', bins_names, align='l', valign='t')
@@ -396,6 +482,21 @@ def print_yield_table(bins_names, bins_is_signal, bkg_yields, bkg_unc, obs_yield
 
 
 def print_limit_table(bins_names, nSmin, nSmax, central_values, logger):
+    """Log the scan box as a table of TOTAL yields.
+
+    ``nSmin``/``nSmax`` are signal offsets; the table shows them added to the
+    central value, which is what the card stores as ``scan_limits``.
+
+    Args:
+        bins_names (list[str]): Bin names, in bin order.
+        nSmin (numpy.ndarray): Lower signal offset per bin.
+        nSmax (numpy.ndarray): Upper signal offset per bin.
+        central_values (numpy.ndarray): Central yield per bin.
+        logger (logging.Logger): Logger the table is written to.
+
+    Returns:
+        str: The rendered table, for storing in the run metadata.
+    """
     logger.info('Scan limits:')
     table = PrettyTable()
     table.add_column('BIN', bins_names, align='l', valign='t')
@@ -406,6 +507,14 @@ def print_limit_table(bins_names, nSmin, nSmax, central_values, logger):
 
 
 def get_time_string(ns_t):
+    """Render a nanosecond duration as "H hours M minutes S seconds".
+
+    Args:
+        ns_t (int): Duration in nanoseconds.
+
+    Returns:
+        str: Human-readable duration.
+    """
     s_t = ns_t//10**9
     m_t = s_t // 60
     h_t = m_t // 60
@@ -437,6 +546,42 @@ def get_obs_signal(bkg_yields, obs_yields):
     return obs_signal_yields
 
 def get_scan_limits(bkg_yields, bkg_unc, obs_yields, channels_and_bins, signal_leakage_CR, signal_leakage_VR, CRs_scan_spread, VRs_scan_spread, CR_scan_sign, VR_scan_sign, CR_center_type, VR_center_type, logger):
+    """Derive the per-bin scan box from the yields, in closed form.
+
+    Signal regions get ``nsMax = obs - (B - 5*dB)`` (floored at 0) and
+    ``nsMin = -B + dB``, falling back to ``obs - B`` or ``-B`` when that would
+    be non-negative; ``dB`` is first clipped to ``3*sqrt(B)`` because an
+    oversized uncertainty otherwise opens the box down to zero background.
+    Control and validation regions ignore ``B`` entirely: they are centred on
+    the observed count and range over ``+/- obs * spread``, or collapse to
+    ``+/-1e-10`` when their signal leakage is switched off.
+
+    The result is only a candidate lower bound - :func:`likelihood.find_min_S`
+    checks whether the model can actually be evaluated there.
+
+    Args:
+        bkg_yields (list[tuple]): ``(bin_name, background)`` pairs, bin order.
+        bkg_unc (list[tuple]): ``(bin_name, uncertainty)`` pairs, same order.
+        obs_yields (list[tuple]): ``(bin_name, observed)`` pairs, same order.
+        channels_and_bins (list[tuple]): ``(channel, type, n_bins)`` per channel.
+        signal_leakage_CR (bool): Allow signal in control regions.
+        signal_leakage_VR (bool): Allow signal in validation regions.
+        CRs_scan_spread (float): CR range as a fraction of the observed count.
+        VRs_scan_spread (float): VR range as a fraction of the observed count.
+        CR_scan_sign (str): ``'both'``, ``'positive'`` or ``'negative'``.
+        VR_scan_sign (str): ``'both'``, ``'positive'`` or ``'negative'``.
+        CR_center_type (str): ``'obs'`` or ``'exp'``; steers a warning only.
+        VR_center_type (str): ``'obs'`` or ``'exp'``; steers a warning only.
+        logger (logging.Logger): Logger for the clipping and spread warnings.
+
+    Returns:
+        tuple: ``(nSmin, nSmax, central_values)`` - the signal offsets per bin,
+        rounded to 4 decimals, and the central yield each is measured from
+        (``B`` for an SR bin, the observed count otherwise).
+
+    Raises:
+        ValueError: If the bin order differs between B, dB and obs.
+    """
     B, deltaB, obs = get2nd(bkg_yields), get2nd(bkg_unc), get2nd(obs_yields)
 
     # safety check
@@ -609,16 +754,40 @@ def find_mu_limits(nSmin, nSmax, central_values, logger):
 
 def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_method='default', channels_and_bins=None, logger=None, starting_points_file=None, starting_points_file_index=None 
 ):
+    """Produce the initial MCMC states, one per chain.
+
+    Args:
+        nsMin (numpy.ndarray): Lower signal offset per bin.
+        nsMax (numpy.ndarray): Upper signal offset per bin.
+        central_values (numpy.ndarray): Central yield per bin, used to convert
+            an external file of TOTAL yields into signal offsets.
+        mask (numpy.ndarray): Boolean per bin; masked-out bins start at 0.
+        n (int, optional): Number of starting points. Defaults to 1.
+        start_method (str, optional): ``'random'`` (uniform in the box),
+            ``'gauss'`` (narrow normal around zero signal), ``'edges'``
+            (a corner of the box) or ``'default'`` (zero signal).
+        channels_and_bins (list[tuple], optional): ``(channel, type, n_bins)``
+            per channel; needed to name the columns of an external file.
+        logger (logging.Logger, optional): Logger; one is created if omitted.
+        starting_points_file (str, optional): CSV of TOTAL yields to start from
+            instead of generating points.
+        starting_points_file_index (int, optional): Row of that file to use.
+
+    Returns:
+        numpy.ndarray: Array of shape ``(n, len(nsMin))`` of signal offsets.
+    """
     #
     # some useful functions
     #
     def populate_randomly(n, mask, nsMin, nsMax):
+        """Draw ``n`` points uniformly inside the box; masked bins stay at 0."""
         random_points = np.empty(shape=(n, len(nsMin)))
         for pp in range(n):
             random_points[pp] = np.array([np.random.uniform(nsMin[j],nsMax[j]) if mask[j] else 0.0 for j in range(len(nsMax))])
         return random_points
 
     def populate_gauss(n, mask, nsMin, nsMax):
+        """Draw ``n`` points from a narrow normal at zero signal, clipped at nsMin."""
         centers = np.zeros(len(mask))
         sigmas = 0.01 * (nsMax-nsMin)
         sigmas = np.where(sigmas > 1.0, 1.0, sigmas)
@@ -629,6 +798,7 @@ def generate_starting_points(nsMin, nsMax, central_values, mask, n=1, start_meth
         return random_points
 
     def populate_with_edges(n, mask, nsMin, nsMax):
+        """Draw ``n`` points on the corners of the box; masked bins stay at 0."""
         edge_points = np.empty(shape=(n, len(nsMin)))
         for pp in range(n):
             edge_points[pp] = np.array([np.random.choice([nsMin[j],nsMax[j]]) if mask[j] else 0.0 for j in range(len(nsMax))])
@@ -754,6 +924,25 @@ def find_placeholder_rows(data):
 
 
 def merge_results(infiles, keep_files=True, suffix='', logger=None):
+    """Concatenate the per-scan CSV chunks into one result file.
+
+    Rows carrying the NaN placeholder that marks a failed likelihood are
+    dropped, so the merged file contains only usable points.
+
+    Args:
+        infiles (list[str]): Per-scan CSV files to merge.
+        keep_files (bool, optional): Keep the inputs after merging.
+            Defaults to True.
+        suffix (str, optional): Extra tag in the output filename.
+        logger (logging.Logger, optional): Logger; one is created if omitted.
+
+    Returns:
+        tuple: ``(outpath, n_rows, min_values, max_values)`` - the merged file,
+        how many rows survived, and the per-column extrema for the metadata.
+
+    Raises:
+        PermissionError: If the output file cannot be created.
+    """
     if logger is None:
         logger = setup_logger()
     logger.info(f'Merging results of {len(infiles)} scans.')
@@ -859,6 +1048,24 @@ def create_metadata(param_dict, bkg_yields, bkg_unc, obs_yields, lower_limits, u
 
 
 def update_metadata(metadata, data_min, data_max, nLL_max):  
+    """Record the per-column extrema of a finished scan in its metadata.
+
+    The last 8 columns of a result row are the likelihood values and the rest
+    are bin yields, so the extrema are split accordingly.
+
+    Args:
+        metadata (dict): Run metadata, updated in place.
+        data_min (array-like): Per-column minimum over the merged results.
+        data_max (array-like): Per-column maximum over the merged results.
+        nLL_max (list or None): Four lists - expected, observed, asimov
+            expected and asimov observed - of the per-scan maximal nLL.
+
+    Returns:
+        dict: The same ``metadata`` object.
+
+    Raises:
+        ValueError: If ``nLL_max`` is given but does not hold 4 entries.
+    """
     metadata['x_min'] = data_min[:-8]
     metadata['y_min'] = data_min[-8:]
     metadata['x_max'] = data_max[:-8]

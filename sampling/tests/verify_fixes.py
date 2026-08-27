@@ -1,3 +1,11 @@
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file is the unit-test harness for the sampler.
+#
+
 """Checks for the sampling bug-fix pass.
 
 Each test targets one of the reported bugs and FAILS on the original code.
@@ -799,6 +807,94 @@ def test_context_guard_ignores_pinned_regions():
     assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
 
 
+def test_context_guard_rejects_channel_removal():
+    """Dropping a channel changes the likelihood, so a stored floor is unverified.
+
+    Pinning and removal are not the same thing. A pinned region keeps its
+    channel in the workspace and merely freezes its bins, so the harvested box
+    still covers the run - that case must stay usable. Removal builds a
+    different model, and the floor the probe proved against the full model was
+    never proved against the reduced one.
+    """
+    import utils
+    ctx = dict(HARVEST_CTX, removeCRsVRs=False, remove_channels=[])
+
+    # nothing removed: unchanged behaviour
+    p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=[])
+    assert utils.check_scan_limits_context(ctx, p, 'p', log) is True
+
+    # removeCRsVRs on -> recompute (leakage is necessarily off in that mode)
+    p = dict(_ctx_params(leak_cr=False, leak_vr=False), removeCRsVRs=True,
+             remove_channels=['CRa_cuts', 'VRb_cuts'])
+    assert utils.check_scan_limits_context(ctx, p, 'p', log) is False
+
+    # an explicit remove_channels list, without removeCRsVRs -> also recompute
+    p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=['CRa_cuts'])
+    assert utils.check_scan_limits_context(ctx, p, 'p', log) is False
+
+    # pinning a region is NOT removal: it must still load
+    p = dict(_ctx_params(leak_cr=False), removeCRsVRs=False, remove_channels=[])
+    assert utils.check_scan_limits_context(ctx, p, 'p', log) is True
+
+
+def test_context_guard_unrecorded_removal_is_unverifiable():
+    """A card harvested before the key existed cannot vouch for a removal run."""
+    import utils
+    # HARVEST_CTX has neither key
+    p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=[])
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is True, \
+        'a run that removes nothing must not be penalised for an old card'
+    p = dict(_ctx_params(leak_cr=False, leak_vr=False), removeCRsVRs=True,
+             remove_channels=['CRa_cuts'])
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
+
+
+def test_harvest_records_channel_removal():
+    """The harvester has to write the removal settings into the context."""
+    import os
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            'tools', 'harvest_limits.py')).read()
+    i = src.index('CONTEXT_KEYS = (')
+    block = src[i:i + 400]
+    for k in ('removeCRsVRs', 'remove_channels'):
+        assert k in block, f'{k} is not part of the harvest context'
+
+
+def test_advisories_are_silent_when_the_limits_are_recomputed():
+    """Do not say "these stay valid" in the same breath as "these do not apply".
+
+    A run can trip an advisory (finer search asked for) AND an invalidating
+    condition (channels removed) at once. The advisory then describes limits
+    that are about to be thrown away, so it must not be printed.
+    """
+    import logging, utils
+
+    class Grab(logging.Handler):
+        def __init__(self):
+            super().__init__(); self.msgs = []
+        def emit(self, r):
+            self.msgs.append(r.getMessage())
+
+    g = Grab()
+    lg = logging.getLogger('advisory-test')
+    lg.handlers = [g]; lg.setLevel(logging.INFO); lg.propagate = False
+
+    ctx = dict(HARVEST_CTX, low_lim_samples=8, removeCRsVRs=False, remove_channels=[])
+    # both fire: finer search requested AND channels removed
+    p = dict(_ctx_params(leak_cr=False, leak_vr=False), low_lim_samples=30,
+             removeCRsVRs=True, remove_channels=['CRa_cuts'])
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is False
+    assert not any('stay VALID' in m for m in g.msgs), \
+        f'advisory printed even though the limits were discarded: {g.msgs}'
+    assert any('do not apply to this run' in m for m in g.msgs), g.msgs
+
+    # advisory alone, limits kept -> it must be printed
+    g.msgs.clear()
+    p = dict(_ctx_params(), low_lim_samples=30, removeCRsVRs=False, remove_channels=[])
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True
+    assert any('stay VALID' in m for m in g.msgs), g.msgs
+
+
 def test_context_guard_reports_coarser_probe_resolution():
     """More low_lim_samples than harvested: usable box, but the log must say so.
 
@@ -885,19 +981,49 @@ def test_context_guard_partial_context():
     assert utils.check_scan_limits_context(no_vr, _ctx_params(leak_vr=True), 'p', log) is False
 
 
-def test_loaded_message_reports_harvest_not_run():
-    """The LOADED line must quote the HARVEST settings, never this run's."""
+def test_loaded_message_reports_stored_settings_not_run():
+    """The LOADED line must quote the settings the STORED limits were built for.
+
+    Reporting this run's own settings there would make the line always agree
+    with itself and hide exactly the mismatch it exists to expose.
+    """
     src = open('sample.py').read()
     start = src.index('Scan limits mode: LOADED')
     block = src[max(0, start - 800):start + 400]
-    assert 'harvest settings UNKNOWN' in block, \
-        'no distinct wording when the harvest context is missing'
+    assert 'settings UNKNOWN' in block, \
+        'no distinct wording when the card carries no scan_limits_context'
     assert "limits_ctx.get('sig_rel_unc'" in block, \
-        'the LOADED line does not read sig_rel_unc from the harvest context'
-    # the old bug: interpolating the run's own settings and calling them "harvested at"
-    assert "harvested at \"\n" not in block
+        'the LOADED line does not read sig_rel_unc from the card context'
     assert "sig_rel_unc={param_dict['sig_rel_unc']}" not in block, \
-        "the LOADED line still labels this run's sig_rel_unc as the harvested one"
+        "the LOADED line still reports this run's sig_rel_unc as the stored one"
+
+
+def test_user_messages_do_not_mention_the_harvest_tool():
+    """Log messages must not send a user to a script they do not have.
+
+    Cards ship with their limits precomputed. A user who changes a setting is
+    told what the run did about it and how to adjust the CARD - not to go run
+    tools/harvest_limits.py, which is a maintainer script.
+    """
+    import re
+    for f in ('utils.py', 'sample.py', 'likelihood.py'):
+        src = open(f).read()
+        # strings passed to the logger or raised, not comments or docstrings
+        for m in re.finditer(r'(logger\.(?:warning|error|info|critical|debug))\(', src):
+            chunk = src[m.start():m.start() + 1400]
+            depth, end = 0, len(chunk)
+            for i, ch in enumerate(chunk[len(m.group(0)) - 1:], start=len(m.group(0)) - 1):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            msg = chunk[:end]
+            low = msg.lower()
+            assert 'harvest' not in low, f'{f}: log message mentions harvesting:\n{msg[:300]}'
+            assert 'harvest_limits' not in low, f'{f}: log message names the harvest tool'
 
 
 def test_context_guard_wired_into_sample():
