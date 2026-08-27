@@ -196,7 +196,7 @@ def cmd_merge(args):
         print(f'  {os.path.basename(p)} -> patchsets {indices} ({len(wanted)} bins)')
 
     CONTEXT_KEYS = ('sig_rel_unc', 'signal_leakage_CR_spread', 'signal_leakage_VR_spread',
-                    'CR_center', 'VR_center')
+                    'CR_center', 'VR_center', 'low_lim_samples')
     context = {k: metas[0][1].get(k) for k in CONTEXT_KEYS}
     # every merged run must share one context, otherwise the stored block would
     # claim settings that only some of its limits were probed with
@@ -244,7 +244,10 @@ def render_context(context):
              '    # limits when a run changes sig_rel_unc, or asks for a leakage spread',
              '    # WIDER than the one harvested here.',
              '    # REQUIRED: without this block, or without a setting the run depends',
-             '    # on, the limits cannot be verified and are recomputed.']
+             '    # on, the limits cannot be verified and are recomputed.',
+             '    # low_lim_samples is the bisection RESOLUTION, not a validity condition:',
+             '    # a run asking for more of them still uses these limits, but is warned',
+             '    # that the floors were resolved on a coarser grid.']
     for k, v in context.items():
         if v is None:
             continue

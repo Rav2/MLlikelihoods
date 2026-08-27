@@ -278,6 +278,23 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
                            f'({harvested} -> {current}), so the loaded limits cover a WIDER '
                            f'range than this run asks for. Re-harvest to match it exactly.')
 
+    # low_lim_samples is a RESOLUTION, not a validity condition. The probe
+    # bisects the candidate floor, so more samples can only find a floor at
+    # least as low as fewer samples did - never an invalid one. A run asking
+    # for more than was harvested therefore gets a usable but coarser box, and
+    # on the bins where the probe had to bisect at all that costs real negative
+    # range. Worth saying out loud; not worth an hours-long recomputation.
+    harvested_lls = context.get('low_lim_samples')
+    current_lls = param_dict.get('low_lim_samples')
+    if (harvested_lls is not None and current_lls is not None
+            and int(current_lls) > int(harvested_lls)):
+        logger.warning(
+            f'Hardcoded limits for {patchset_label} were probed with low_lim_samples='
+            f'{harvested_lls} but this run asks for {current_lls}. The stored floors are '
+            f'valid, just resolved on a coarser bisection grid: any bin whose floor had to '
+            f'be walked up keeps less negative range than this run would have found. '
+            f'Re-harvest with --low-lim-samples {current_lls} to recover it.')
+
     if reasons:
         logger.warning(f'Hardcoded scan limits for {patchset_label} are NOT valid for this run: '
                        + '; '.join(reasons) + '. Recomputing them instead.')
