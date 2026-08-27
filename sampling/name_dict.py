@@ -1,5 +1,9 @@
 #
-# This file contains a dictionary for the names of analyses
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file contains a dictionary for the names of analyses.
 #
 
 analysis_name_dict = {

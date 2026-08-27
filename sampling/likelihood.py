@@ -1,8 +1,9 @@
 #
 # author: Rafal Maselek
-# e-mail: rafal.maselek@lpsc.in2p3.fr
-# 
-# This file implements functions used by sample.py to perform likelihood sampling
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file implements functions used by sample.py to perform likelihood sampling.
 #
 
 import os
@@ -24,6 +25,18 @@ import warnings
 import random
 import gc
 
+
+#: Value written in place of a likelihood that came back NaN or infinite.
+#: Such a row carries no usable information, so merge_results drops it.
+NAN_PLACEHOLDER = 1e10
+#: Number of likelihood columns at the end of every results row.
+N_LIKELIHOOD_COLUMNS = 8
+
+#: Criteria that name a single likelihood directly.
+EXPLICIT_CRITERIA = ('nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1')
+#: Every criterion accepted by :class:`ScanWrapper` ('mu1' picks one of the
+#: nLL_*_mu1 criteria at random for each scan).
+VALID_CRITERIA = EXPLICIT_CRITERIA + ('mu1',)
 
 
 def set_seeds(seed):
@@ -63,7 +76,49 @@ def set_global_determinism(seed):
 
 
 
-def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
+def build_signal_modifiers(bin_vals, sig_rel_unc):
+    """Build the modifier list attached to an injected signal.
+
+    Used by BOTH the scan and the lower-limit probe, so the two cannot drift
+    apart: whatever uncertainty the scan evaluates the likelihood with, the
+    probe has to respect when deciding how negative the signal may go.
+
+    Args:
+        bin_vals (numpy.ndarray): Signal yields for the channel's bins.
+        sig_rel_unc (float): Relative uncertainty on the injected signal. When
+            negligible, only the ``lumi`` and ``mu_SIG`` modifiers are used.
+
+    Returns:
+        list[dict]: Modifiers for ``WorkspaceInterpreter.inject_signal``.
+    """
+    base = [
+        {
+            "data": None,
+            "name": "lumi",
+            "type": "lumi"
+        },
+        {
+            "data": None,
+            "name": "mu_SIG",
+            "type": "normfactor"
+        }
+    ]
+    if abs(sig_rel_unc) <= 1e-17:
+        return base
+    return [
+        {
+            "name": "Wolfgang_unc",
+            "type": "histosys",
+            "data": {
+                "hi_data": bin_vals * (1.0+sig_rel_unc),
+                "lo_data": [ float(np.max([0.0, bval*(1.0-sig_rel_unc)])) for bval in bin_vals]
+                },
+        },
+    ] + base
+
+
+def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, probe_mask=None,
+               sig_rel_unc=0.0):
     """Find, for each bin, the most negative injectable signal that keeps the likelihood well-defined.
 
     Starting from a candidate lower bound on the signal yield per bin
@@ -90,6 +145,20 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
             and their number of bins, in the same order as ``nSmin``.
         logger (logging.Logger): Logger used to report progress and
             warnings when a stable lower limit cannot be found for a bin.
+        probe_mask (numpy.ndarray, optional): Boolean per-bin mask selecting
+            the bins to probe. Bins marked ``False`` - pinned bins, whose step
+            size is 0, and bins of removed channels, which never reach the
+            likelihood - keep their incoming ``nSmin`` and cost no model
+            evaluations. Skipping them matters beyond speed: the ``+1e-4``
+            safety margin applied to a probed bin would otherwise put a
+            positive floor under a bin that must hold exactly zero signal.
+            Defaults to probing every bin.
+        sig_rel_unc (float, optional): Relative uncertainty on the injected
+            signal. The probe applies the same ``histosys`` modifier the scan
+            uses, so the limit it returns stays valid once that uncertainty is
+            in play; with a negative signal the up-variation is
+            ``S*(1+sig_rel_unc)``, i.e. more negative than the nominal.
+            Defaults to 0.0 (no uncertainty).
 
     Returns:
         numpy.ndarray: Array of the same shape as ``nSmin`` containing
@@ -102,11 +171,31 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
     up_lim = np.zeros(nSmin.shape, dtype=float)
     minimalS = np.zeros(nSmin.shape, dtype=float)
 
+    if probe_mask is None:
+        probe_mask = np.ones(nSmin.shape, dtype=bool)
+    else:
+        probe_mask = np.asarray(probe_mask, dtype=bool)
+        if probe_mask.shape != nSmin.shape:
+            mes = f'[ERROR] probe_mask has shape {probe_mask.shape} but {nSmin.shape} expected!'
+            logger.critical(mes)
+            raise ValueError(mes)
+    # bins that are not probed keep the limit they came in with
+    minimalS[~probe_mask] = nSmin[~probe_mask]
+
+    # Bins whose FIRST probe (mu=1, the full analytic candidate) came back
+    # non-finite. Bisecting down from there is the intended behaviour - the
+    # candidate is an estimate and the probe exists to shrink it - but the
+    # count is worth reporting, because a bin that cannot take its analytic
+    # floor gives up part of the negative range the scan was meant to cover,
+    # and a run where MOST bins do that is usually an input problem rather
+    # than physics. Kept as a summary, not a per-bin error.
+    reduced_at_mu1 = []
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        nbins = np.sum([em[2] for em in channels_and_bins])
+        nbins = int(np.sum(probe_mask))
         ii = 0
-        
+
         with progressbar(total=nbins*niter) as pbar:
             interpreter = WorkspaceInterpreter(bkg_spec)
             # iterate over all channels and bins
@@ -118,16 +207,47 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
                 inject_vals = np.zeros(bin_vals.shape)
                 # iterate over all bins in that channel
                 for bb in range(b):
-                    # optimise value of signal in the channel, start with mu=1   
+                    if not probe_mask[ii+bb]:
+                        # pinned or removed: leave inject_vals[bb] at 0 so this bin
+                        # contributes no signal while the other bins are probed
+                        continue
+                    # Optimise the signal fraction for this bin, starting at the
+                    # full analytic candidate (mu=1) and bisecting on a bracket:
+                    #   mu_fail = the smallest fraction KNOWN to break the model
+                    #   mu_ok   = the largest fraction KNOWN to work
+                    # Keeping both ends is what makes this a bisection. Halving
+                    # the current mu on every failure, as this loop used to do,
+                    # can step BELOW a fraction already proven good - and since
+                    # the limit was taken from the most recent success rather
+                    # than the best one, the probe could hand back a floor it had
+                    # already bettered earlier in the same loop.
                     mu = 1.0
-                    mu_old = 1.0
+                    mu_fail = 1.0
+                    mu_ok = None
                     mu_new = None
                     # perform niter steps to find the lower limit on signal
                     for nn in range(niter):
+                        # Probe THIS bin against the background-only model and
+                        # nothing else. A single interpreter reused across the
+                        # loop keeps every injection it has been given, so by
+                        # the time the loop reaches a late channel all the
+                        # earlier ones are already sitting at their most
+                        # negative signal. That joint configuration can be
+                        # invalid even when every bin on its own is fine, and
+                        # then every remaining bin fails for a reason that has
+                        # nothing to do with its own limit - the result depends
+                        # on the channel iteration order. Rebuilding here keeps
+                        # each bin's limit its own.
+                        interpreter = WorkspaceInterpreter(bkg_spec)
                         # set signal for given bin
-                        inject_vals[bb] = np.round(bin_vals[bb] * mu+1e-4, 4) 
-                        # inject the signal to all bins
-                        interpreter.inject_signal(c, inject_vals)
+                        inject_vals[:] = 0.0
+                        inject_vals[bb] = np.round(bin_vals[bb] * mu+1e-4, 4)
+                        # inject the signal to all bins, with the SAME modifiers the
+                        # scan will use - with a relative signal uncertainty the
+                        # histosys up-variation of a negative signal is more negative
+                        # than the nominal, so the limit has to be probed with it
+                        interpreter.inject_signal(c, inject_vals,
+                                                  modifiers=build_signal_modifiers(inject_vals, sig_rel_unc))
                         statistical_model = stat_wrapper(
                                                     background_only_model=interpreter.background_only_model,
                                                     signal_patch=interpreter.make_patch(),
@@ -140,14 +260,21 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
                         
                         # print(c, mu, bin_vals[bb] * mu, nLL_exp_mu1, nLL_obs_mu1, inject_vals)
                         if isnan(nLL_exp_mu1) or isnan(nLL_obs_mu1) or isinf(nLL_exp_mu1) or isinf(nLL_obs_mu1):
-                            mu_old = mu
-                            mu = mu/2.0
+                            if nn == 0:
+                                reduced_at_mu1.append((f'{c}-{bb}', float(bin_vals[bb]), ii + bb))
+                            mu_fail = mu
+                            # with nothing proven good yet there is no bracket to
+                            # bisect, so fall back to halving until something works
+                            mu = mu / 2.0 if mu_ok is None else (mu_ok + mu_fail) / 2.0
                         else:
-                            minimalS[ii+bb] = inject_vals[bb] 
-                            mu_new = (mu+mu_old)/2.0
-                            if np.isclose(mu_new, 1.0, atol=1e-3):
+                            # only ever move the limit further out, never back in
+                            if mu_ok is None or mu > mu_ok:
+                                minimalS[ii+bb] = inject_vals[bb]
+                                mu_ok = mu
+                            mu_new = mu
+                            if np.isclose(mu, 1.0, atol=1e-3):
                                 break
-                            mu = mu_new
+                            mu = (mu_ok + mu_fail) / 2.0
                     pbar.update(niter)
 
                     if mu_new is None:
@@ -155,7 +282,47 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger):
                         minimalS[ii+bb] = up_lim[ii+bb]
                 ii += b
     del interpreter, inject_vals
+
+    _report_reduced_at_mu1(logger, reduced_at_mu1, minimalS, int(np.sum(probe_mask)))
     return minimalS
+
+
+def _report_reduced_at_mu1(logger, reduced, minimalS, nprobed):
+    """Summarise the bins that could not take their full analytic floor.
+
+    ``mu=1`` is the candidate ``get_scan_limits`` derives from the card's
+    background yields, their uncertainties and the observed counts. The probe
+    is there precisely to walk that candidate down when the model does not
+    hold at it, so a failure at ``mu=1`` is not an error - but it does mean
+    the scan explores less negative signal than intended, and it happens for
+    two very different reasons that are worth telling apart:
+
+      * physics - the card holds a post-fit background above the workspace's
+        own nominal template, so the analytic floor asks for a total yield the
+        template cannot reach. Expect a handful of bins.
+      * inputs  - bkg_yields/bkg_unc do not belong to this workspace, or the
+        channel-to-bin mapping slipped. Expect most bins to fail.
+
+    The ratio of affected bins is what separates them, so it is reported.
+    """
+    if not reduced:
+        return
+    kept = []
+    for name, cand, idx in reduced:
+        kept.append(abs(minimalS[idx] / cand) if cand else 0.0)
+    frac = len(reduced) / max(nprobed, 1)
+    worst = min(kept) if kept else 0.0
+    median = float(np.median(kept)) if kept else 0.0
+    order = sorted(zip(reduced, kept), key=lambda rk: rk[1])
+    head = ', '.join(f'{n} {k:.0%}' for (n, _, _), k in order[:3])
+    logger.warning(
+        f'Lower limit reduced in {len(reduced)} of {nprobed} bins ({frac:.0%}); they keep '
+        f'{median:.0%} of the target range at the median, {worst:.0%} at worst. This is normal. '
+        f'Worst: {head}.')
+    if frac > 0.5:
+        logger.warning(
+            f'Over half the bins needed that - usually an input problem rather than physics. '
+            f'Check that bkg_yields/bkg_unc belong to this workspace and follow its channel order.')
 
 
 class NewStateWrapper():
@@ -255,6 +422,11 @@ class LikelihoodCalculatorWrapper():
         self._buff_size = buff_size
         self._central_values = central_values
         self._criterion = criterion
+        if self._criterion not in EXPLICIT_CRITERIA:
+            mes = f'[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper: {self._criterion}! ' \
+                  f'Expected one of {EXPLICIT_CRITERIA}.'
+            logger.critical(mes)
+            raise ValueError(mes)
         self._mu_bounds = mu_bounds
         self._remove_channels = [] if remove_channels is None else remove_channels
         self._sig_rel_unc = sig_rel_unc
@@ -278,13 +450,21 @@ class LikelihoodCalculatorWrapper():
 
         self._bin_no = bin_no
         # handle the removed channels
-        self._mask = np.ones(shape=self._bin_no, dtype=bool)
-        cc = 0
+        # NOTE: the mask is indexed by BIN, not by channel, so every bin of a
+        # removed channel has to be switched off (channels may hold >1 bin).
+        self._mask = np.ones(shape=bin_no, dtype=bool)
+        bin_offset = 0
         for c, sr, b in channels_and_bins:
             if c in self._remove_channels:
                 self._bin_no = self._bin_no - b
-                self._mask[cc] = False
-            cc += 1
+                self._mask[bin_offset:bin_offset + b] = False
+            bin_offset += b
+
+        if int(np.sum(self._mask)) != self._bin_no:
+            mes = f'[ERROR] Bin bookkeeping mismatch after removing channels: ' \
+                  f'mask keeps {int(np.sum(self._mask))} bins but {self._bin_no} expected!'
+            self.logger.critical(mes)
+            raise ValueError(mes)
 
         self._results = np.empty(shape=(self._buff_size, self._bin_no+8), dtype=float)
         self.nLL_exp_mu0 = None
@@ -438,49 +618,14 @@ class LikelihoodCalculatorWrapper():
         ii = 0
         for c, sr, b in self._channels_and_bins:
             bin_vals = np.array(S_yields[ii:ii + b])
-            if abs(self._sig_rel_unc) > 1e-17:
-                modifiers=[
-                    {
-                        "name": "Wolfgang_unc",
-                        "type": "histosys",
-                        "data": {
-                            "hi_data": bin_vals * (1.0+self._sig_rel_unc), 
-                            "lo_data": [ float(np.max([0.0, bval*(1.0-self._sig_rel_unc)])) for bval in bin_vals]  
-                            },
-                    },
-                    {
-                        "data": None,
-                        "name": "lumi",
-                        "type": "lumi"
-                    },
-                    {
-                        "data": None,
-                        "name": "mu_SIG",
-                        "type": "normfactor"
-                    }
-                ]
-            else:
-                modifiers=[
-                    {
-                        "data": None,
-                        "name": "lumi",
-                        "type": "lumi"
-                    },
-                    {
-                        "data": None,
-                        "name": "mu_SIG",
-                        "type": "normfactor"
-                    }
-                ]
-
             interpreter.inject_signal(
                 c,
                 bin_vals,
-                modifiers=modifiers,
+                modifiers=build_signal_modifiers(bin_vals, self._sig_rel_unc),
             )
 
             ii += b
-        return interpreter  
+        return interpreter
 
     def save_results(self, counter=None):
         """Append the buffered results to the output CSV file and clear the buffer.
@@ -497,19 +642,24 @@ class LikelihoodCalculatorWrapper():
         self.clear_buffer()
 
     def check_for_nan(self, likelihood, name):
-        """Sanitize a likelihood value, substituting a large finite value for NaN.
+        """Sanitize a likelihood value, substituting a large finite value for NaN/inf.
 
         Args:
             likelihood (float): Likelihood value to check.
             name (str): Human-readable name of the quantity, used in the
-                logged error message if ``likelihood`` is NaN.
+                logged error message if ``likelihood`` is not finite.
 
         Returns:
-            float: ``likelihood`` unchanged, or ``1e10`` if it was NaN.
+            float: ``likelihood`` unchanged, or ``1e10`` if it was NaN or
+            infinite (``-inf`` is mapped to ``-1e10``).
         """
         if isnan(likelihood):
-            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +1e10')
-            return np.float64(1e10)
+            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as +{NAN_PLACEHOLDER:.0e}')
+            return np.float64(NAN_PLACEHOLDER)
+        elif isinf(likelihood):
+            replacement = np.float64(-NAN_PLACEHOLDER) if likelihood < 0 else np.float64(NAN_PLACEHOLDER)
+            self.logger.error(f'[ERROR] {name} is {likelihood}! I will write it as {replacement:+.0e}')
+            return replacement
         else:
             return likelihood
     
@@ -582,10 +732,9 @@ class LikelihoodCalculatorWrapper():
         elif self._criterion == 'LL_exp_mu1':
             return nLL_exp_mu1
         else:
-            mes = '[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper.'
+            mes = f'[ERROR] Wrong criterion passed to LikelihoodCalculatorWrapper: {self._criterion}!'
             self.logger.critical(mes)
             raise ValueError(mes)
-        del nLL_exp_mu1, nLL_obs_mu1, nLLA_exp_mu1, nLLA_obs_mu1,
 
     def get_counter(self):
         """Return the number of results currently held in the in-memory buffer.
@@ -757,6 +906,12 @@ class ScanWrapper():
         self._buff_size = buff_size
         self._minimalS_allowed = minimalS_allowed
         self._criterion = criterion
+        if self._criterion not in VALID_CRITERIA:
+            mes = f'[ERROR] Wrong criterion passed to ScanWrapper: {self._criterion}! ' \
+                  f'Expected one of {VALID_CRITERIA}.'
+            if logger is not None:
+                logger.critical(mes)
+            raise ValueError(mes)
         self._stds = sigmas
         self._central_values = central_values
         self._mu_bounds = mu_bounds
@@ -796,12 +951,14 @@ class ScanWrapper():
         """
         set_seeds(self._seed)
         p0, output_file = dat
-        if self._criterion in ['nLL_obs_mu1', 'nLL_exp_mu1', 'LL_obs_mu1', 'LL_exp_mu1']:
+        if self._criterion in EXPLICIT_CRITERIA:
             criterion = self._criterion
         elif self._criterion == 'mu1':
-            criterion = np.random.choice(['nLL_exp_mu1', 'nLL_obs_mu1'], 1)
+            # str(), because np.random.choice returns a numpy array/str, and the
+            # criterion is later compared against plain Python strings.
+            criterion = str(np.random.choice(['nLL_exp_mu1', 'nLL_obs_mu1']))
         else:
-            mes = '[ERROR] Wrong criterion passed to ScanWrapper.'
+            mes = f'[ERROR] Wrong criterion passed to ScanWrapper: {self._criterion}!'
             self.logger.critical(mes)
             raise ValueError(mes)
 

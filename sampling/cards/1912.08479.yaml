@@ -1,3 +1,10 @@
+#
+# ATLAS-SUSY-2019-09 / arXiv:1912.08479
+# Electroweakinos -> 3 leptons + MET, 139/fb
+#
+# bkg_yields / bkg_unc are the published post-fit yields, HEPData ins1771533
+# "Yields SR", indexed per BIN in the 'channels' order below.
+#
 bkgfiles : 
     - BkgOnly.json
 patchsets :
@@ -17,3 +24,36 @@ bkg_unc :
     - 21.0
     - 5.0
     - 2.1
+#
+# --- scan limits
+# Precomputed lower/upper limits of the scan, so a run does not have to spend
+# hours finding them. Values are TOTAL yields (central value +/- the scan
+# range), one entry per patchset in the "patchsets" order above; null means
+# "compute at run time".
+#
+# They are only valid for the settings in scan_limits_context below. Change one
+# of those in your run and the sampler says so and recomputes the limits itself
+# - correct, but slow. To make the change permanent, paste the limits it prints
+# into the block below and update scan_limits_context to match.
+
+scan_limits_context :
+    # The settings the scan_limits below were computed with. Your run must
+    # match these, or the limits are recomputed (correct, but slow).
+    # low_lim_samples is the exception: asking for more only warns, because
+    # a coarser search gives a conservative limit, never an unsafe one.
+    sig_rel_unc : 0.0
+    signal_leakage_CR_spread : 0.1
+    signal_leakage_VR_spread : 0.1
+    CR_center : 'obs'
+    VR_center : 'obs'
+    low_lim_samples : 50
+    removeCRsVRs : False
+    remove_channels : []
+
+scan_limits :
+    # patchset.json: 4 bins, in the "channels" order above
+    -
+        - [370.8001, 453.2]   # CRlow_cuts-0
+        - [397.8001, 486.2]   # CRISR_cuts-0
+        - [5.0001, 76]   # SRlow_cuts-0
+        - [2.1001, 40.5]   # SRISR_cuts-0
