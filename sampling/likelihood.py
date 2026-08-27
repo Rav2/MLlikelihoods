@@ -313,19 +313,16 @@ def _report_reduced_at_mu1(logger, reduced, minimalS, nprobed):
     frac = len(reduced) / max(nprobed, 1)
     worst = min(kept) if kept else 0.0
     median = float(np.median(kept)) if kept else 0.0
-    head = ', '.join(f'{n} ({k:.0%} kept)' for (n, _, _), k in zip(reduced[:6], kept[:6]))
+    order = sorted(zip(reduced, kept), key=lambda rk: rk[1])
+    head = ', '.join(f'{n} {k:.0%}' for (n, _, _), k in order[:3])
     logger.warning(
-        f'{len(reduced)} of {nprobed} probed bins ({frac:.0%}) could not take the full analytic '
-        f'lower limit at mu=1; the probe bisected down and they keep a reduced negative range '
-        f'(median {median:.0%} of the candidate, worst {worst:.0%}). This is the probe doing its '
-        f'job, not a failure. Bins: {head}'
-        + (f' ... and {len(reduced)-6} more' if len(reduced) > 6 else ''))
+        f'Lower limit reduced in {len(reduced)} of {nprobed} bins ({frac:.0%}); they keep '
+        f'{median:.0%} of the target range at the median, {worst:.0%} at worst. This is normal. '
+        f'Worst: {head}.')
     if frac > 0.5:
         logger.warning(
-            f'More than half the probed bins failed at mu=1. At that rate the usual cause is not '
-            f'physics but the inputs: check that bkg_yields/bkg_unc in the card belong to this '
-            f'workspace and that the channel order matches. A single mis-sized uncertainty drives '
-            f'the analytic floor below what the template can represent for every bin it touches.')
+            f'Over half the bins needed that - usually an input problem rather than physics. '
+            f'Check that bkg_yields/bkg_unc belong to this workspace and follow its channel order.')
 
 
 class NewStateWrapper():

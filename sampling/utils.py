@@ -270,11 +270,9 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
         be recomputed.
     """
     if context is None:
-        logger.warning(f"'scan_limits' for {patchset_label} carries no 'scan_limits_context', "
-                       f"so the stored limits cannot be checked against this run's settings. "
-                       f"Computing them from scratch instead - the result is correct, just "
-                       f"slower. To keep the stored limits, add a 'scan_limits_context' block "
-                       f"to the card recording the settings they were computed with.")
+        logger.warning(f"Not using the card's scan limits for {patchset_label}: it has no "
+                       f"'scan_limits_context', so they cannot be checked. Computing them "
+                       f"now, which can be slow. See README.")
         return False
     if not isinstance(context, dict):
         mes = f"'scan_limits_context' must be a mapping, got {type(context).__name__}!"
@@ -290,9 +288,9 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     stored_sig = context.get('sig_rel_unc')
     current_sig = param_dict['sig_rel_unc']
     if stored_sig is None:
-        reasons.append('sig_rel_unc not recorded in scan_limits_context, so it cannot be verified')
+        reasons.append('sig_rel_unc not recorded in the card')
     elif abs(float(stored_sig) - float(current_sig)) > _CONTEXT_TOL:
-        reasons.append(f'signal uncertainty changed ({stored_sig} in the card, {current_sig} in this run)')
+        reasons.append(f'sig_rel_unc {stored_sig}->{current_sig}')
 
     for region, leak_key, spread_key in (('CR', 'signal_leakage_CR', 'signal_leakage_CR_spread'),
                                          ('VR', 'signal_leakage_VR', 'signal_leakage_VR_spread')):
@@ -303,17 +301,13 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
         if stored is None:
             # this run leaks signal into the region, so its spread matters and
             # an unrecorded one cannot be verified
-            reasons.append(f'{spread_key} not recorded in scan_limits_context, so it cannot '
-                           f'be verified ({region} leakage is enabled for this run)')
+            reasons.append(f'{region} spread not recorded in the card')
             continue
         if float(current) > float(stored) + _CONTEXT_TOL:
-            reasons.append(f'{region} leakage spread increased '
-                           f'({stored} in the card, {current} in this run)')
+            reasons.append(f'{region} spread {stored}->{current}')
         elif float(current) < float(stored) - _CONTEXT_TOL:
-            advisories.append(f'{region} leakage spread is smaller than the card was built '
-                              f'for ({stored} -> {current}), so the stored limits cover a WIDER '
-                              f'range than this run asks for. Harmless; the scan simply explores '
-                              f'more than requested in the {region}s.')
+            advisories.append(f'{region} spread is {current} here but {stored} in the card, so '
+                              f'the card\'s limits are wider than this run needs. Harmless.')
 
     # Channel removal changes the MODEL, not just which bins get read. Pinning a
     # region leaves its channel in the workspace and merely freezes its bins, so
@@ -329,17 +323,17 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     run_removed = sorted(param_dict.get('remove_channels') or [])
     if any(context.get(k) is None for k in removal_keys):
         if run_flag or run_removed:
-            reasons.append('this run removes channels but the card does not record '
-                           'removeCRsVRs / remove_channels, so its limits cannot be '
-                           'checked against the model this scan will actually build')
+            reasons.append('this run removes channels, the card does not say whether its '
+                           'limits were built with any removed')
     else:
         stored_flag = bool(context.get('removeCRsVRs'))
         stored_removed = sorted(context.get('remove_channels') or [])
         if stored_flag != run_flag:
-            reasons.append(f'removeCRsVRs changed ({stored_flag} in the card, {run_flag} in this run)')
+            reasons.append(f'removeCRsVRs {stored_flag}->{run_flag}')
         if stored_removed != run_removed:
-            reasons.append(f'remove_channels changed ({stored_removed or "none"} in the card, '
-                           f'{run_removed or "none"} in this run)')
+            def _n(v):
+                return 'none' if not v else (v[0] if len(v) == 1 else f'{len(v)} channels')
+            reasons.append(f'remove_channels {_n(stored_removed)}->{_n(run_removed)}')
 
     # low_lim_samples is a RESOLUTION, not a validity condition. The probe
     # bisects the candidate floor, so more samples can only find a floor at
@@ -352,25 +346,18 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
     if (stored_lls is not None and current_lls is not None
             and int(current_lls) > int(stored_lls)):
         advisories.append(
-            f'The limits stored in the card for {patchset_label} were computed with '
-            f'low_lim_samples={stored_lls}, but this run asks for {current_lls}. They stay '
-            f'VALID and are used as they are - a smaller low_lim_samples only means a coarser '
-            f'search, so a bin whose lower limit had to be reduced may keep slightly less '
-            f'negative signal than this run would have found. To use the finer search instead, '
-            f'set low_lim_samples={stored_lls} to match the card, or delete the card\'s '
-            f"'scan_limits' block so this run computes the limits itself (slow).")
+            f"Using the card's limits, computed with low_lim_samples={stored_lls} while this run "
+            f'asks for {current_lls}. A finer search would only widen a few bins slightly; set '
+            f'low_lim_samples={stored_lls} to match the card.')
 
     if not reasons:
         for note in advisories:
             logger.warning(note)
 
     if reasons:
-        logger.warning(f'The scan limits stored in the card for {patchset_label} do not apply '
-                       f'to this run: ' + '; '.join(reasons) + '. Computing them from scratch '
-                       f'instead - correct, but it can take a long time on a large workspace. '
-                       f'The values it finds are printed below as "Scan limits" and saved in the '
-                       f'run metadata as lower_limits / upper_limits; copy them into the card, '
-                       f"together with a matching 'scan_limits_context', to reuse them.")
+        logger.warning(f"Not using the card's scan limits for {patchset_label} (card->run: "
+                       + ', '.join(reasons) + '). Computing them now, which can be slow. '
+                       f'See README to store them in the card.')
         return False
     return True
 

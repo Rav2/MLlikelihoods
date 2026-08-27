@@ -17,8 +17,13 @@ import numpy as np
 sys.path.insert(0, os.getcwd())  # run from inside sampling/
 
 logging.basicConfig(level=logging.CRITICAL)
+# Several tests deliberately feed malformed input to code whose contract is to
+# log CRITICAL and then raise. Those records are the checks passing, so they are
+# swallowed here rather than printed: propagate=False keeps them off the root
+# handler (and off spey's), leaving only the PASS/FAIL lines on screen.
 log = logging.getLogger('verify')
 log.addHandler(logging.NullHandler())
+log.propagate = False
 
 RESULTS = []
 
@@ -684,7 +689,7 @@ def test_probe_reports_bins_reduced_at_mu1():
     out, warns = _probe_with_failures(fail_at=3.0, nbins=4)
     assert warns, 'no bin-reduction summary was logged at all'
     msg = ' '.join(r.getMessage() for r in warns)
-    assert '4 of 4 probed bins' in msg, msg
+    assert '4 of 4 bins' in msg, msg
     # every returned limit stays above the floor that failed, and still negative
     assert np.all(out > -3.0) and np.all(out < 0.0), out
     # nothing is raised to ERROR: this is the probe working as intended
@@ -884,15 +889,15 @@ def test_advisories_are_silent_when_the_limits_are_recomputed():
     p = dict(_ctx_params(leak_cr=False, leak_vr=False), low_lim_samples=30,
              removeCRsVRs=True, remove_channels=['CRa_cuts'])
     assert utils.check_scan_limits_context(ctx, p, 'p', lg) is False
-    assert not any('stay VALID' in m for m in g.msgs), \
+    assert not any("Using the card's limits" in m for m in g.msgs), \
         f'advisory printed even though the limits were discarded: {g.msgs}'
-    assert any('do not apply to this run' in m for m in g.msgs), g.msgs
+    assert any("Not using the card's scan limits" in m for m in g.msgs), g.msgs
 
     # advisory alone, limits kept -> it must be printed
     g.msgs.clear()
     p = dict(_ctx_params(), low_lim_samples=30, removeCRsVRs=False, remove_channels=[])
     assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True
-    assert any('stay VALID' in m for m in g.msgs), g.msgs
+    assert any("Using the card's limits" in m for m in g.msgs), g.msgs
 
 
 def test_context_guard_reports_coarser_probe_resolution():
@@ -918,18 +923,18 @@ def test_context_guard_reports_coarser_probe_resolution():
     p = dict(_ctx_params(), low_lim_samples=50)
     assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True, \
         'a finer requested resolution must not invalidate the limits'
-    assert any('low_lim_samples' in m and 'coarser' in m for m in g.msgs), g.msgs
+    assert any('low_lim_samples' in m and 'finer search' in m for m in g.msgs), g.msgs
 
     # asking for the same or fewer: nothing to say
     g.msgs.clear()
     assert utils.check_scan_limits_context(ctx, dict(_ctx_params(), low_lim_samples=5), 'p', lg) is True
     assert utils.check_scan_limits_context(ctx, dict(_ctx_params(), low_lim_samples=2), 'p', lg) is True
-    assert not any('coarser' in m for m in g.msgs), g.msgs
+    assert not any('finer search' in m for m in g.msgs), g.msgs
 
-    # a card harvested before the key existed must not crash or warn
+    # a card written before the key existed must not crash or warn
     g.msgs.clear()
     assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', lg) is True
-    assert not any('coarser' in m for m in g.msgs), g.msgs
+    assert not any('finer search' in m for m in g.msgs), g.msgs
 
 
 def test_harvest_records_probe_resolution():
