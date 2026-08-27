@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file compares reproduced yields against HEPData.
+#
+
 """Validate the CR-only background fit against HEPData post-fit tables.
 
 Parses the "Expected background" block out of HEPData's dataMC_SR*_mct CSV

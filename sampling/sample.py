@@ -1,9 +1,11 @@
 #
 # author: Rafal Maselek
-# e-mail: rafal.maselek@lpsc.in2p3.fr
-# 
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
 # This file is used to generate likelihood samples.
 #
+
 import os, sys
 if 'NUMEXPR_MAX_THREADS' not in os.environ:
     os.environ['NUMEXPR_MAX_THREADS'] = '8' # silence numpy warning
@@ -618,15 +620,16 @@ def main(logger, param_file, starting_points_file, starting_points_file_index):
                 if hardcoded_limits is not None:
                     nSmin, nSmax = hardcoded_limits
                     param_dict['scan_limits_source'] = 'parameter card'
-                    # report the HARVEST settings, not this run's: they are only equal
-                    # because the guard passed, and with no context they are unknown
+                    # report the settings the STORED limits were built for, not this
+                    # run's: they are only equal because the check above passed, and
+                    # with no context block they are unknown
                     limits_ctx = param_dict.get('scan_limits_context')
                     if limits_ctx:
-                        provenance = (f"harvested at sig_rel_unc={limits_ctx.get('sig_rel_unc', '?')}, "
+                        provenance = (f"computed for sig_rel_unc={limits_ctx.get('sig_rel_unc', '?')}, "
                                       f"CR/VR spread {limits_ctx.get('signal_leakage_CR_spread', '?')}/"
                                       f"{limits_ctx.get('signal_leakage_VR_spread', '?')}")
                     else:
-                        provenance = "harvest settings UNKNOWN, NOT verified against this run"
+                        provenance = "settings UNKNOWN, NOT checked against this run"
                     logger.info(f"Scan limits mode: LOADED from the parameter card "
                                 f"({len(bins_names)} bins, {provenance}). "
                                 f"Skipping the lower-limit probe.")

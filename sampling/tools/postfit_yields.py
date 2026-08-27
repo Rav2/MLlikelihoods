@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file reproduces post-fit background yields from a workspace.
+#
+
 """Report background yields for an analysis: nominal, pre-fit and POST-FIT.
 
 The nominal sum of a workspace's ``sample['data']`` is a PRE-FIT number. Papers

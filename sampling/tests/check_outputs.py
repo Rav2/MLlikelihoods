@@ -1,3 +1,11 @@
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file checks the outputs a scan produced.
+#
+
 """Validate the CSV/JSON produced by a sampling run."""
 import json, os, sys, glob
 import numpy as np

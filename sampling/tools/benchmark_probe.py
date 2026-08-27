@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file measures the cost of the lower-limit probe.
+#
+
 """Time the find_min_S probe on a few bins and extrapolate to a full harvest.
 
 The probe is the expensive part of a scan: for each bin it rebuilds the spey

@@ -1,3 +1,11 @@
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file provides the logger used across the sampler.
+#
+
 import logging
 import os
 import sys
@@ -20,6 +28,14 @@ class CustomFormatter(logging.Formatter):
     }
 
     def format(self, record):
+        """Render one log record, colouring it by severity.
+
+        Args:
+            record (logging.LogRecord): The record to render.
+
+        Returns:
+            str: The formatted line, wrapped in the colour for its level.
+        """
         log_fmt = self.FORMATS.get(record.levelno, self.FORMAT)
         formatter = logging.Formatter(log_fmt, datefmt=self.DATEFMT, style="{")
         return formatter.format(record)

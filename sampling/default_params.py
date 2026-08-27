@@ -1,3 +1,11 @@
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file lists every scan parameter with its default value.
+#
+
 import multiprocessing as mp
 
 

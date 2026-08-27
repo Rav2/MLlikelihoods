@@ -1,3 +1,11 @@
+#
+# author: Rafal Maselek
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file builds the tiny workspace used by the tests.
+#
+
 """Build a tiny synthetic analysis for exercising sample.py.
 
 Deliberately uses MULTI-BIN channels, which is what the channel-removal

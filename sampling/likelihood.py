@@ -1,8 +1,9 @@
 #
 # author: Rafal Maselek
-# e-mail: rafal.maselek@lpsc.in2p3.fr
-# 
-# This file implements functions used by sample.py to perform likelihood sampling
+# e-mail: rafal.maselek@ijs.si
+# ORCID:  https://orcid.org/0000-0002-5558-8249
+#
+# This file implements functions used by sample.py to perform likelihood sampling.
 #
 
 import os
