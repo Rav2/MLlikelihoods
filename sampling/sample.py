@@ -72,7 +72,27 @@ def include_handler(data):
             if not isinstance(included_data, dict):
                 raise ValueError(f"Included file {file_path} must contain a dictionary.")
             del data["include"]  # Remove the `include` key
+            # The card is merged ON TOP, so it wins wherever both set a key.
+            # That is deliberate - a card describes the analysis and should not be
+            # silently contradicted - but it means a value written in the
+            # parameter document simply has no effect, with nothing to show for
+            # it. sig_rel_unc is the usual casualty. Report the collisions.
+            # capture the document's own values BEFORE the merge overwrites them
+            overridden = {k: data[k] for k, v in included_data.items()
+                          if k in data and data[k] != v}
             data.update(included_data)  # Merge included data into the main dictionary
+            if overridden:
+                label = data.get('analysis') or data.get('name') or file_path
+                card = os.path.basename(file_path)
+                # the include is resolved before main() binds the module logger,
+                # so fall back to printing when it is not there yet
+                say = globals().get('logger')
+                say = say.warning if say is not None else (lambda m: print('[WARNING]', m))
+                for k in sorted(overridden):
+                    say(f"[{label}] '{k}' is set in the parameter file, but {card} sets it "
+                        f"too and the card wins: {k}={included_data[k]!r} is used, not "
+                        f"{overridden[k]!r}. Change it in the card, or include one that "
+                        f"already has the value you want.")
     return data
 
 def load_yaml_with_includes(file_path):
