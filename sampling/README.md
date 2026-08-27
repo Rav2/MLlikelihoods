@@ -22,8 +22,6 @@ learn.
 | `utils.py` | Scan limits, starting points, result merging, metadata. |
 | `misc.py` | Logger setup. |
 | `name_dict.py` | arXiv number → ATLAS analysis name. |
-| `tools/` | Helper scripts, not needed for a normal run (see below). |
-| `tests/` | Unit tests; `python3 tests/verify_fixes.py` from this directory. |
 
 Workspaces live outside this directory, under `input_folder` (`../data/` by
 default), in a subdirectory named after the analysis.
@@ -35,10 +33,12 @@ default), in a subdirectory named after the analysis.
 From this directory:
 
 ```bash
-python3 sample.py my_params.yaml --log_dir logs
+python sample.py parameters.yaml --log_dir logs
 ```
 
-with `my_params.yaml`:
+`parameters.yaml` is a multi-document YAML file: the first document holds
+settings that apply to every analysis, and each one after it describes a single
+analysis. The minimal version is
 
 ```yaml
 ---
@@ -58,10 +58,11 @@ include  : cards/1911.06660.yaml
 That is the whole input. `include` pulls in the card, which supplies the
 workspace files, the channel roles and the background yields; anything not set
 anywhere falls back to `default_params.py`. `analyses` selects which of the
-documents actually run — use `'all'` for every one of them.
+documents actually run — use `'all'` for every one of them, or list the ones you
+want, so a file can carry many analyses and you enable them a few at a time.
 
-Omit the file name and `sample.py` reads `parameters.yaml`. `--log_dir`
-defaults to `logs/`.
+Both arguments are optional: `sample.py` reads `parameters.yaml` and logs to
+`logs/` when they are omitted.
 
 ### What you get
 
@@ -110,19 +111,29 @@ expensive part of a scan — hours on a large workspace.
 The cards ship with the answer precomputed, so a normal run just loads it:
 
 ```
-Scan limits mode: LOADED from the parameter card (5 bins, harvested at sig_rel_unc=0.0, ...)
+Scan limits mode: LOADED from the parameter card (5 bins, computed for sig_rel_unc=0.0,
+CR/VR spread 0.1/0.1). Skipping the lower-limit probe.
 ```
 
-The limits are reused only when your run matches the settings they were computed
-with, which the card records in `scan_limits_context`. Change `sig_rel_unc`,
-widen a leakage spread or remove channels and the sampler says so and works them
-out itself:
+The card records what those limits were computed with in `scan_limits_context`,
+and the sampler checks your run against it. Change `sig_rel_unc`, or widen a
+leakage spread, and the stored limits no longer describe your run, so it works
+them out itself:
 
 ```
-The scan limits stored in the card for patchset.json do not apply to this run:
-removeCRsVRs changed (False in the card, True in this run). Computing them from
-scratch instead - correct, but it can take a long time on a large workspace.
+Not using the card's scan limits for patchset.json (card->run: sig_rel_unc 0.0->0.2).
+Computing them now, which can be slow. See README to store them in the card.
 ```
+
+Two settings are reported but do **not** discard the stored limits:
+
+- `low_lim_samples` — how finely the lower limit is searched for. Asking for
+  more than the card was built with only warns: a coarser search returns a limit
+  that is conservative, never unsafe.
+- `removeCRsVRs` / `remove_channels` — the lower-limit search always evaluates
+  the full model, so recomputing after a removal returns the same numbers. Note
+  that the scan itself *does* drop the channels, so the limits were established
+  on a slightly larger model than the one being sampled.
 
 ### Keeping limits for a configuration you use often
 
@@ -141,11 +152,6 @@ every time, copy them into the card:
 
 Steps 3 and 4 go together: a `scan_limits` block that does not agree with its
 context is the one thing the sampler cannot detect.
-
-`low_lim_samples` is the only setting that does not invalidate stored limits.
-It controls how finely the lower limit is searched for, so asking for more than
-the card was built with only produces a warning — a coarser search returns a
-limit that is conservative, never unsafe.
 
 ---
 
@@ -184,15 +190,3 @@ Everything below the `# --- scan limits` marker is the precomputed scan box and
 the settings it belongs to. Edit it only as described above — the two blocks
 have to stay consistent with each other.
 
----
-
-## Tools
-
-Maintainer scripts. Not needed for a normal run.
-
-| script | purpose |
-|---|---|
-| `tools/harvest_limits.py` | Compute a card's scan limits and write them in. |
-| `tools/benchmark_probe.py` | Measure what the lower-limit search costs. |
-| `tools/postfit_yields.py` | Reproduce post-fit background yields from a workspace. |
-| `tools/validate_vs_hepdata.py` | Compare reproduced yields against HEPData. |
