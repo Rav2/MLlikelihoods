@@ -347,9 +347,19 @@ def test_1911_12606_cards():
             assert len(entry) == len(c['channels'][i]), \
                 f'patchset {i}: {len(entry)} limit rows vs {len(c["channels"][i])} channels'
             assert all(isinstance(p, list) and len(p) == 2 and p[0] <= p[1] for p in entry)
-    # measured: the limits come out identical at 0.0 and 0.20 on this workspace,
-    # because the probe succeeds at mu=1 before the uncertainty can matter
-    assert a['scan_limits'] == b['scan_limits'], 'the two variants disagree on scan limits'
+    # Measured: on every patchset harvested at both settings the limits come out
+    # identical, because the bins that decide the floor evaluate fine at mu=1 and
+    # the signal uncertainty never gets a chance to matter. Patchsets left null in
+    # one card (harvesting is expensive; a null is recomputed at run time) are not
+    # compared - only the ones both cards actually carry.
+    compared = 0
+    for i, (ea, eb) in enumerate(zip(a['scan_limits'], b['scan_limits'])):
+        if ea is None or eb is None:
+            continue
+        assert ea == eb, (f'patchset {i} ({a["patchsets"][i][0]}) disagrees between '
+                          f'sig_rel_unc 0.0 and 0.20')
+        compared += 1
+    assert compared, 'no patchset is harvested in both variants, so nothing was compared'
     # each card's context must record its OWN uncertainty, and agree with the card
     for name, c in (('1911.12606', a), ('1911.12606-sigunc20', b)):
         assert abs(c['scan_limits_context']['sig_rel_unc'] - c['sig_rel_unc']) < 1e-12, \
@@ -483,6 +493,212 @@ def test_mu_limits_all_pinned():
     assert len(msgs) >= 2, msgs
 
 
+def test_probe_is_per_bin_not_cumulative():
+    """Each bin must be probed against the background alone.
+
+    find_min_S used to build one WorkspaceInterpreter and reuse it for every
+    channel, so injections accumulated: by the last channel, every earlier one
+    was already at its most negative signal. Measured on 1908.08215 with the
+    published yields, each of those bins is fine on its own but the joint
+    configuration is not, and 28 of 36 bins came back with no negative range
+    at all - purely because of where they sat in the loop.
+    """
+    import likelihood, numpy as np
+
+    seen = []
+
+    class FakeInterpreter:
+        background_only_model = {}
+        def __init__(self):
+            self.state = {}
+        def inject_signal(self, channel, vals, modifiers=None):
+            self.state[channel] = list(vals)
+            seen.append(dict(self.state))
+        def make_patch(self):
+            return {}
+
+    class FakeModel:
+        class backend:
+            class manager:
+                backend = None
+        def likelihood(self, poi_test, expected):
+            return 1.0
+
+    orig = likelihood.WorkspaceInterpreter
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        likelihood.find_min_S(1, {}, lambda **kw: FakeModel(),
+                              np.array([-5.0, -3.0, -2.0]),
+                              [('CHa', 'SR', 1), ('CHb', 'SR', 1), ('CHc', 'SR', 1)], log)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+
+    assert len(seen) == 3, f'expected one injection per bin, got {len(seen)}'
+    for k, st in enumerate(seen):
+        assert len(st) == 1, (f'bin {k} was probed with {len(st)} channels injected '
+                              f'at once: {st} - the interpreter is carrying earlier bins')
+
+    # and within a multi-bin channel, only the probed bin may carry signal
+    seen.clear()
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        likelihood.find_min_S(1, {}, lambda **kw: FakeModel(), np.array([-5.0, -3.0]),
+                              [('CH', 'SR', 2)], log)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+    for k, st in enumerate(seen):
+        vals = st['CH']
+        nz = [i for i, v in enumerate(vals) if v != 0.0]
+        assert nz == [k], f'probing bin {k} injected into bins {nz}: {vals}'
+
+
+def _probe_with_failures(fail_at, nbins, niter=6):
+    """Run find_min_S against a fake model that rejects |S| beyond a threshold.
+
+    Returns the refined limits and whatever the probe logged at WARNING or above.
+    """
+    import likelihood, logging, numpy as np
+
+    class FakeInterpreter:
+        background_only_model = {}
+        def __init__(self):
+            self.state = {}
+        def inject_signal(self, channel, vals, modifiers=None):
+            self.state[channel] = list(vals)
+        def make_patch(self):
+            return dict(self.state)
+
+    class FakeModel:
+        class backend:
+            class manager:
+                backend = None
+        def __init__(self, patch):
+            self.patch = patch
+        def likelihood(self, poi_test, expected):
+            s = min((min(v) for v in self.patch.values()), default=0.0)
+            return float('nan') if s < -fail_at else 1.0
+
+    records = []
+
+    class Grab(logging.Handler):
+        def emit(self, r):
+            records.append(r)
+
+    lg = logging.getLogger('probe-summary-test')
+    lg.handlers = [Grab()]
+    lg.setLevel(logging.INFO)
+    lg.propagate = False
+
+    orig = likelihood.WorkspaceInterpreter
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        out = likelihood.find_min_S(
+            niter, {}, lambda background_only_model, signal_patch: FakeModel(signal_patch),
+            np.array([-10.0] * nbins),
+            [(f'CH{i}', 'SR', 1) for i in range(nbins)], lg)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+    return out, [r for r in records if r.levelno >= logging.WARNING]
+
+
+def test_probe_never_returns_worse_than_a_proven_value():
+    """The probe must keep the BEST fraction it proved, not the last one it tried.
+
+    The old loop halved the current mu on every failure and took the limit from
+    the most recent success. Fail at 1, succeed at 0.5, fail at 0.75: the next
+    step went to 0.375 - below a fraction already proven good - and the limit
+    recorded there REPLACED the better one. Bracketing on (largest good,
+    smallest bad) makes the sequence monotone in the returned limit.
+    """
+    import numpy as np
+    # a model that breaks above |S| = 6 out of a candidate of 10, i.e. the true
+    # floor sits at mu = 0.6; the failure at mu=0.75 is what triggered the old bug
+    out, _ = _probe_with_failures(fail_at=6.0, nbins=1, niter=5)
+    assert -6.0 <= out[0] <= -5.0, (
+        f'probe returned {out[0]:.4f}; with a true floor at -6.0 and 5 bisection '
+        f'steps it must land in [-6, -5], not below a value it had already proven')
+
+
+def test_probe_bisects_on_a_bracket():
+    """Every probed fraction must lie inside the current (good, bad) bracket."""
+    import likelihood, logging, numpy as np
+    tried = []
+
+    class FakeInterpreter:
+        background_only_model = {}
+        def __init__(self):
+            self.state = {}
+        def inject_signal(self, channel, vals, modifiers=None):
+            self.state[channel] = list(vals)
+            tried.append(min(vals))
+        def make_patch(self):
+            return dict(self.state)
+
+    class FakeModel:
+        class backend:
+            class manager:
+                backend = None
+        def __init__(self, patch):
+            self.patch = patch
+        def likelihood(self, poi_test, expected):
+            s = min((min(v) for v in self.patch.values()), default=0.0)
+            return float('nan') if s < -6.0 else 1.0
+
+    orig = likelihood.WorkspaceInterpreter
+    likelihood.WorkspaceInterpreter = lambda spec: FakeInterpreter()
+    try:
+        likelihood.find_min_S(6, {}, lambda background_only_model, signal_patch: FakeModel(signal_patch),
+                              np.array([-10.0]), [('CH', 'SR', 1)], log)
+    finally:
+        likelihood.WorkspaceInterpreter = orig
+
+    good, bad = None, None
+    for s in tried:
+        mu = abs(s) / 10.0
+        if good is not None and bad is not None:
+            assert good < mu < bad + 1e-9, \
+                f'probed mu={mu:.4f} outside the bracket ({good:.4f}, {bad:.4f}): {tried}'
+        if s >= -6.0:
+            good = mu if good is None else max(good, mu)
+        else:
+            bad = mu if bad is None else min(bad, mu)
+
+
+def test_probe_reports_bins_reduced_at_mu1():
+    """A bin that cannot take its analytic floor is counted, not silently kept.
+
+    mu=1 is the candidate get_scan_limits derives from B, dB and obs. Bisecting
+    down from it is the intended behaviour, so this must NOT be an error - but
+    the scan then covers less negative signal than the card asked for, and that
+    has to be visible in the log.
+    """
+    import numpy as np
+    out, warns = _probe_with_failures(fail_at=3.0, nbins=4)
+    assert warns, 'no bin-reduction summary was logged at all'
+    msg = ' '.join(r.getMessage() for r in warns)
+    assert '4 of 4 probed bins' in msg, msg
+    # every returned limit stays above the floor that failed, and still negative
+    assert np.all(out > -3.0) and np.all(out < 0.0), out
+    # nothing is raised to ERROR: this is the probe working as intended
+    assert all(r.levelname == 'WARNING' for r in warns), [r.levelname for r in warns]
+
+
+def test_probe_summary_silent_when_every_bin_holds():
+    """No message at all when mu=1 works everywhere - the healthy case stays quiet."""
+    import numpy as np
+    out, warns = _probe_with_failures(fail_at=1e9, nbins=3)
+    assert not warns, [r.getMessage() for r in warns]
+    assert np.allclose(out, -10.0 + 1e-4), out
+
+
+def test_probe_summary_escalates_when_most_bins_fail():
+    """A majority failing points at the inputs rather than at physics."""
+    _, warns = _probe_with_failures(fail_at=3.0, nbins=4)
+    msg = ' '.join(r.getMessage() for r in warns)
+    assert 'belong to this workspace' in msg, \
+        'the >50% input-mismatch hint did not fire even though every bin failed'
+
+
 def test_region_pinning_applied_to_loaded_limits():
     """A loaded box is general; the run's own pinning must be re-imposed on it."""
     import utils, numpy as np
@@ -581,6 +797,57 @@ def test_context_guard_ignores_pinned_regions():
     # same spread but leakage ON -> rejected
     p = _ctx_params(cr=5.0, leak_cr=True)
     assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
+
+
+def test_context_guard_reports_coarser_probe_resolution():
+    """More low_lim_samples than harvested: usable box, but the log must say so.
+
+    The probe bisects, so a coarser grid can only return a floor that is too
+    HIGH, never an invalid one. Recomputing for hours would be the wrong
+    reaction; silently handing back a smaller negative range would be worse.
+    """
+    import logging, utils
+
+    class Grab(logging.Handler):
+        def __init__(self):
+            super().__init__(); self.msgs = []
+        def emit(self, r):
+            self.msgs.append(r.getMessage())
+
+    g = Grab()
+    lg = logging.getLogger('ctx-resolution-test')
+    lg.handlers = [g]; lg.setLevel(logging.INFO); lg.propagate = False
+
+    ctx = dict(HARVEST_CTX, low_lim_samples=5)
+    p = dict(_ctx_params(), low_lim_samples=50)
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True, \
+        'a finer requested resolution must not invalidate the limits'
+    assert any('low_lim_samples' in m and 'coarser' in m for m in g.msgs), g.msgs
+
+    # asking for the same or fewer: nothing to say
+    g.msgs.clear()
+    assert utils.check_scan_limits_context(ctx, dict(_ctx_params(), low_lim_samples=5), 'p', lg) is True
+    assert utils.check_scan_limits_context(ctx, dict(_ctx_params(), low_lim_samples=2), 'p', lg) is True
+    assert not any('coarser' in m for m in g.msgs), g.msgs
+
+    # a card harvested before the key existed must not crash or warn
+    g.msgs.clear()
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', lg) is True
+    assert not any('coarser' in m for m in g.msgs), g.msgs
+
+
+def test_harvest_records_probe_resolution():
+    """The harvester has to write low_lim_samples into the context it emits."""
+    import importlib.util, os
+    spec = importlib.util.spec_from_file_location(
+        'hl', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           'tools', 'harvest_limits.py'))
+    hl = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hl)
+    src = open(spec.origin).read()
+    i = src.index('CONTEXT_KEYS = (')
+    assert 'low_lim_samples' in src[i:i + 400], \
+        'low_lim_samples is not part of the harvest context, so the resolution is unverifiable'
 
 
 def test_context_guard_missing_context():

@@ -181,6 +181,15 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
     # bins that are not probed keep the limit they came in with
     minimalS[~probe_mask] = nSmin[~probe_mask]
 
+    # Bins whose FIRST probe (mu=1, the full analytic candidate) came back
+    # non-finite. Bisecting down from there is the intended behaviour - the
+    # candidate is an estimate and the probe exists to shrink it - but the
+    # count is worth reporting, because a bin that cannot take its analytic
+    # floor gives up part of the negative range the scan was meant to cover,
+    # and a run where MOST bins do that is usually an input problem rather
+    # than physics. Kept as a summary, not a per-bin error.
+    reduced_at_mu1 = []
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         nbins = int(np.sum(probe_mask))
@@ -201,13 +210,36 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                         # pinned or removed: leave inject_vals[bb] at 0 so this bin
                         # contributes no signal while the other bins are probed
                         continue
-                    # optimise value of signal in the channel, start with mu=1
+                    # Optimise the signal fraction for this bin, starting at the
+                    # full analytic candidate (mu=1) and bisecting on a bracket:
+                    #   mu_fail = the smallest fraction KNOWN to break the model
+                    #   mu_ok   = the largest fraction KNOWN to work
+                    # Keeping both ends is what makes this a bisection. Halving
+                    # the current mu on every failure, as this loop used to do,
+                    # can step BELOW a fraction already proven good - and since
+                    # the limit was taken from the most recent success rather
+                    # than the best one, the probe could hand back a floor it had
+                    # already bettered earlier in the same loop.
                     mu = 1.0
-                    mu_old = 1.0
+                    mu_fail = 1.0
+                    mu_ok = None
                     mu_new = None
                     # perform niter steps to find the lower limit on signal
                     for nn in range(niter):
+                        # Probe THIS bin against the background-only model and
+                        # nothing else. A single interpreter reused across the
+                        # loop keeps every injection it has been given, so by
+                        # the time the loop reaches a late channel all the
+                        # earlier ones are already sitting at their most
+                        # negative signal. That joint configuration can be
+                        # invalid even when every bin on its own is fine, and
+                        # then every remaining bin fails for a reason that has
+                        # nothing to do with its own limit - the result depends
+                        # on the channel iteration order. Rebuilding here keeps
+                        # each bin's limit its own.
+                        interpreter = WorkspaceInterpreter(bkg_spec)
                         # set signal for given bin
+                        inject_vals[:] = 0.0
                         inject_vals[bb] = np.round(bin_vals[bb] * mu+1e-4, 4)
                         # inject the signal to all bins, with the SAME modifiers the
                         # scan will use - with a relative signal uncertainty the
@@ -227,14 +259,21 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                         
                         # print(c, mu, bin_vals[bb] * mu, nLL_exp_mu1, nLL_obs_mu1, inject_vals)
                         if isnan(nLL_exp_mu1) or isnan(nLL_obs_mu1) or isinf(nLL_exp_mu1) or isinf(nLL_obs_mu1):
-                            mu_old = mu
-                            mu = mu/2.0
+                            if nn == 0:
+                                reduced_at_mu1.append((f'{c}-{bb}', float(bin_vals[bb]), ii + bb))
+                            mu_fail = mu
+                            # with nothing proven good yet there is no bracket to
+                            # bisect, so fall back to halving until something works
+                            mu = mu / 2.0 if mu_ok is None else (mu_ok + mu_fail) / 2.0
                         else:
-                            minimalS[ii+bb] = inject_vals[bb] 
-                            mu_new = (mu+mu_old)/2.0
-                            if np.isclose(mu_new, 1.0, atol=1e-3):
+                            # only ever move the limit further out, never back in
+                            if mu_ok is None or mu > mu_ok:
+                                minimalS[ii+bb] = inject_vals[bb]
+                                mu_ok = mu
+                            mu_new = mu
+                            if np.isclose(mu, 1.0, atol=1e-3):
                                 break
-                            mu = mu_new
+                            mu = (mu_ok + mu_fail) / 2.0
                     pbar.update(niter)
 
                     if mu_new is None:
@@ -242,7 +281,50 @@ def find_min_S(niter, bkg_spec, stat_wrapper, nSmin, channels_and_bins, logger, 
                         minimalS[ii+bb] = up_lim[ii+bb]
                 ii += b
     del interpreter, inject_vals
+
+    _report_reduced_at_mu1(logger, reduced_at_mu1, minimalS, int(np.sum(probe_mask)))
     return minimalS
+
+
+def _report_reduced_at_mu1(logger, reduced, minimalS, nprobed):
+    """Summarise the bins that could not take their full analytic floor.
+
+    ``mu=1`` is the candidate ``get_scan_limits`` derives from the card's
+    background yields, their uncertainties and the observed counts. The probe
+    is there precisely to walk that candidate down when the model does not
+    hold at it, so a failure at ``mu=1`` is not an error - but it does mean
+    the scan explores less negative signal than intended, and it happens for
+    two very different reasons that are worth telling apart:
+
+      * physics - the card holds a post-fit background above the workspace's
+        own nominal template, so the analytic floor asks for a total yield the
+        template cannot reach. Expect a handful of bins.
+      * inputs  - bkg_yields/bkg_unc do not belong to this workspace, or the
+        channel-to-bin mapping slipped. Expect most bins to fail.
+
+    The ratio of affected bins is what separates them, so it is reported.
+    """
+    if not reduced:
+        return
+    kept = []
+    for name, cand, idx in reduced:
+        kept.append(abs(minimalS[idx] / cand) if cand else 0.0)
+    frac = len(reduced) / max(nprobed, 1)
+    worst = min(kept) if kept else 0.0
+    median = float(np.median(kept)) if kept else 0.0
+    head = ', '.join(f'{n} ({k:.0%} kept)' for (n, _, _), k in zip(reduced[:6], kept[:6]))
+    logger.warning(
+        f'{len(reduced)} of {nprobed} probed bins ({frac:.0%}) could not take the full analytic '
+        f'lower limit at mu=1; the probe bisected down and they keep a reduced negative range '
+        f'(median {median:.0%} of the candidate, worst {worst:.0%}). This is the probe doing its '
+        f'job, not a failure. Bins: {head}'
+        + (f' ... and {len(reduced)-6} more' if len(reduced) > 6 else ''))
+    if frac > 0.5:
+        logger.warning(
+            f'More than half the probed bins failed at mu=1. At that rate the usual cause is not '
+            f'physics but the inputs: check that bkg_yields/bkg_unc in the card belong to this '
+            f'workspace and that the channel order matches. A single mis-sized uncertainty drives '
+            f'the analytic floor below what the template can represent for every bin it touches.')
 
 
 class NewStateWrapper():
