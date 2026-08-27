@@ -812,46 +812,51 @@ def test_context_guard_ignores_pinned_regions():
     assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
 
 
-def test_context_guard_rejects_channel_removal():
-    """Dropping a channel changes the likelihood, so a stored floor is unverified.
+def test_channel_removal_keeps_the_limits_but_says_so():
+    """Removing channels must NOT force a recomputation - but must be reported.
 
-    Pinning and removal are not the same thing. A pinned region keeps its
-    channel in the workspace and merely freezes its bins, so the harvested box
-    still covers the run - that case must stay usable. Removal builds a
-    different model, and the floor the probe proved against the full model was
-    never proved against the reduced one.
+    find_min_S takes the raw workspace and never applies remove_channels; only
+    ScanWrapper does, during the scan. So the lower-limit search evaluates the
+    full model whatever the run removes, and recomputing would reproduce the
+    stored numbers exactly. Silently reusing them is still wrong, because the
+    scan DOES drop the channels - hence a warning rather than an invalidation.
     """
-    import utils
+    import logging, utils
+
+    class Grab(logging.Handler):
+        def __init__(self):
+            super().__init__(); self.msgs = []
+        def emit(self, r):
+            self.msgs.append(r.getMessage())
+
+    g = Grab()
+    lg = logging.getLogger('removal-test')
+    lg.handlers = [g]; lg.setLevel(logging.INFO); lg.propagate = False
+
     ctx = dict(HARVEST_CTX, removeCRsVRs=False, remove_channels=[])
 
-    # nothing removed: unchanged behaviour
+    # nothing removed: silent
     p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=[])
-    assert utils.check_scan_limits_context(ctx, p, 'p', log) is True
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True
+    assert not any('removes' in m for m in g.msgs), g.msgs
 
-    # removeCRsVRs on -> recompute (leakage is necessarily off in that mode)
+    # removeCRsVRs on: limits kept, one warning naming the count
+    g.msgs.clear()
     p = dict(_ctx_params(leak_cr=False, leak_vr=False), removeCRsVRs=True,
              remove_channels=['CRa_cuts', 'VRb_cuts'])
-    assert utils.check_scan_limits_context(ctx, p, 'p', log) is False
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True, \
+        'channel removal must not force an hours-long recomputation'
+    assert any('2 channels' in m for m in g.msgs), g.msgs
 
-    # an explicit remove_channels list, without removeCRsVRs -> also recompute
+    # an explicit list without removeCRsVRs: same treatment, names the channel
+    g.msgs.clear()
     p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=['CRa_cuts'])
-    assert utils.check_scan_limits_context(ctx, p, 'p', log) is False
+    assert utils.check_scan_limits_context(ctx, p, 'p', lg) is True
+    assert any('CRa_cuts' in m for m in g.msgs), g.msgs
 
-    # pinning a region is NOT removal: it must still load
-    p = dict(_ctx_params(leak_cr=False), removeCRsVRs=False, remove_channels=[])
-    assert utils.check_scan_limits_context(ctx, p, 'p', log) is True
-
-
-def test_context_guard_unrecorded_removal_is_unverifiable():
-    """A card harvested before the key existed cannot vouch for a removal run."""
-    import utils
-    # HARVEST_CTX has neither key
-    p = dict(_ctx_params(), removeCRsVRs=False, remove_channels=[])
-    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is True, \
-        'a run that removes nothing must not be penalised for an old card'
-    p = dict(_ctx_params(leak_cr=False, leak_vr=False), removeCRsVRs=True,
-             remove_channels=['CRa_cuts'])
-    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', log) is False
+    # a card written before the keys existed must not crash
+    g.msgs.clear()
+    assert utils.check_scan_limits_context(HARVEST_CTX, p, 'p', lg) is True
 
 
 def test_harvest_records_channel_removal():
@@ -885,9 +890,9 @@ def test_advisories_are_silent_when_the_limits_are_recomputed():
     lg.handlers = [g]; lg.setLevel(logging.INFO); lg.propagate = False
 
     ctx = dict(HARVEST_CTX, low_lim_samples=8, removeCRsVRs=False, remove_channels=[])
-    # both fire: finer search requested AND channels removed
-    p = dict(_ctx_params(leak_cr=False, leak_vr=False), low_lim_samples=30,
-             removeCRsVRs=True, remove_channels=['CRa_cuts'])
+    # both fire: finer search requested AND the signal uncertainty changed
+    p = dict(_ctx_params(sig=0.20), low_lim_samples=30,
+             removeCRsVRs=False, remove_channels=[])
     assert utils.check_scan_limits_context(ctx, p, 'p', lg) is False
     assert not any("Using the card's limits" in m for m in g.msgs), \
         f'advisory printed even though the limits were discarded: {g.msgs}'

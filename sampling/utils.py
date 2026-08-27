@@ -309,31 +309,26 @@ def check_scan_limits_context(context, param_dict, patchset_label, logger):
             advisories.append(f'{region} spread is {current} here but {stored} in the card, so '
                               f'the card\'s limits are wider than this run needs. Harmless.')
 
-    # Channel removal changes the MODEL, not just which bins get read. Pinning a
-    # region leaves its channel in the workspace and merely freezes its bins, so
-    # a box stored with everything present still covers it - that is why the
-    # harvest is deliberately run with nothing removed. Dropping a channel is a
-    # different thing: the likelihood the probe evaluated is not the likelihood
-    # the scan will use, so a stored floor is no longer a floor that was
-    # verified. Measured on 1911.06660 the SR floors come out identical either
-    # way, but "identical on the one analysis we checked" is not something to
-    # assume silently for the rest, so this is checked rather than trusted.
-    removal_keys = ('removeCRsVRs', 'remove_channels')
+    # Channel removal is REPORTED, not treated as invalidating. find_min_S takes
+    # the raw workspace and never applies remove_channels - only ScanWrapper
+    # does, during the scan - so the lower-limit search evaluates the full model
+    # whatever the run removes. Recomputing on removal therefore reproduces the
+    # stored numbers exactly (measured on 1911.06660: 2.9001/24.5 and 2.0001/17
+    # either way) at the cost of a full probe, which is hours on a large
+    # workspace. Worth saying out loud, because the scan itself DOES drop the
+    # channels, so the floor is proven against a slightly different likelihood
+    # than the one being sampled.
     run_flag = bool(param_dict.get('removeCRsVRs'))
     run_removed = sorted(param_dict.get('remove_channels') or [])
-    if any(context.get(k) is None for k in removal_keys):
-        if run_flag or run_removed:
-            reasons.append('this run removes channels, the card does not say whether its '
-                           'limits were built with any removed')
-    else:
-        stored_flag = bool(context.get('removeCRsVRs'))
-        stored_removed = sorted(context.get('remove_channels') or [])
-        if stored_flag != run_flag:
-            reasons.append(f'removeCRsVRs {stored_flag}->{run_flag}')
-        if stored_removed != run_removed:
-            def _n(v):
-                return 'none' if not v else (v[0] if len(v) == 1 else f'{len(v)} channels')
-            reasons.append(f'remove_channels {_n(stored_removed)}->{_n(run_removed)}')
+    stored_flag = bool(context.get('removeCRsVRs'))
+    stored_removed = sorted(context.get('remove_channels') or [])
+    if (run_flag or run_removed) and (stored_flag != run_flag or stored_removed != run_removed):
+        n = len(run_removed)
+        advisories.append(
+            f"Using the card's limits although this run removes "
+            f'{run_removed[0] if n == 1 else f"{n} channels"}. The lower-limit search always '
+            f'uses the full model, so recomputing them here would give the same numbers; the '
+            f'scan itself does drop the channels.')
 
     # low_lim_samples is a RESOLUTION, not a validity condition. The probe
     # bisects the candidate floor, so more samples can only find a floor at
