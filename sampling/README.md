@@ -193,17 +193,7 @@ have to stay consistent with each other.
 ### A card always wins
 
 The card is merged **on top of** the analysis document, so a value set in both
-places takes the card's. `sig_rel_unc` is the one that catches people out: it
-lives in the card, and setting it in `parameters.yaml` has no effect. To scan
-the same analysis at a different signal uncertainty, point `include` at a card
-that carries the value you want:
-
-```yaml
-analysis : '1911.12606'
-include  : cards/1911.12606-sigunc20.yaml    # sig_rel_unc: 0.20
-```
-
-The sampler warns when a document sets a key the card then overrides.
+places takes the card's. The sampler warns when a document sets a key the card then overrides.
 
 ---
 
