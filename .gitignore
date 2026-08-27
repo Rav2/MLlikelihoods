@@ -22,6 +22,10 @@ sampling/cards/2102.10874.yaml
 # scratch: files staged for manual deletion
 _to_delete/
 
-# kept locally, not published: maintainer scripts and the test harness
+# kept locally, not published: maintainer scripts, the test harness and the
+# fixtures and run logs that belong to them
 sampling/tools/
 sampling/tests/
+sampling/harvest_logs/
+sampling/parameters_test.yaml
+sampling/cards/test-*.yaml
